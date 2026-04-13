@@ -1,0 +1,310 @@
+/* prism.tcss — PRISM TUI stylesheet */
+/* GitHub Dark color palette */
+
+Screen {
+    background: #0d1117;
+    color: #e6edf3;
+}
+
+/* ── Header / Footer ──────────────────────────────────────────── */
+
+Header {
+    background: #161b22;
+    color: #58a6ff;
+    text-style: bold;
+    dock: top;
+    height: 1;
+}
+
+Footer {
+    background: #161b22;
+    color: #8b949e;
+    dock: bottom;
+    height: 1;
+}
+
+/* ── Health grade colors ──────────────────────────────────────── */
+
+.health-a { color: #3fb950; }
+.health-b { color: #58a6ff; }
+.health-c { color: #d29922; }
+.health-d { color: #f85149; }
+.health-f { color: #ff7b72; }
+
+/* ── Advisor action colors ────────────────────────────────────── */
+
+.advisor-add  { color: #3fb950; }
+.advisor-trim { color: #f85149; }
+.advisor-warn { color: #d29922; }
+.advisor-restructure { color: #79c0ff; }
+
+/* ── Session event markers ────────────────────────────────────── */
+
+.compact-boundary {
+    color: #8b949e;
+    background: #21262d;
+}
+
+.retry-loop      { color: #f85149; text-style: bold; }
+.interactive-flag { color: #d29922; text-style: bold; }
+.migration-edit  { color: #ff7b72; }
+
+/* ── Health card widget ───────────────────────────────────────── */
+
+.health-card {
+    border: round #30363d;
+    padding: 1 2;
+    background: #161b22;
+    min-width: 18;
+    min-height: 6;
+}
+
+.health-card-title {
+    color: #8b949e;
+    text-style: bold;
+}
+
+.health-card-grade {
+    text-style: bold;
+    content-align: center middle;
+}
+
+.health-card-detail {
+    color: #8b949e;
+}
+
+/* ── Project list ─────────────────────────────────────────────── */
+
+#project-list {
+    background: #161b22;
+    border: round #30363d;
+    height: 1fr;
+}
+
+#project-list > .list-item--highlighted {
+    background: #21262d;
+}
+
+.project-item {
+    padding: 0 1;
+    height: 1;
+}
+
+.project-item-active {
+    color: #3fb950;
+}
+
+.project-item-inactive {
+    color: #8b949e;
+}
+
+.project-name {
+    color: #e6edf3;
+}
+
+.project-grade-a { color: #3fb950; text-style: bold; }
+.project-grade-b { color: #58a6ff; text-style: bold; }
+.project-grade-c { color: #d29922; text-style: bold; }
+.project-grade-d { color: #f85149; text-style: bold; }
+.project-grade-f { color: #ff7b72; text-style: bold; }
+
+/* ── Dashboard panels ─────────────────────────────────────────── */
+
+#dashboard {
+    layout: vertical;
+}
+
+#top-panel {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#project-panel {
+    width: 1fr;
+    min-width: 30;
+    padding: 0 1;
+}
+
+#detail-panel {
+    width: 2fr;
+    layout: vertical;
+    padding: 0 1;
+}
+
+#score-cards {
+    layout: horizontal;
+    height: auto;
+    margin-bottom: 1;
+}
+
+#issues-panel {
+    border: round #30363d;
+    background: #161b22;
+    padding: 1 2;
+    height: auto;
+    min-height: 6;
+}
+
+.issue-high   { color: #f85149; }
+.issue-medium { color: #d29922; }
+.issue-low    { color: #8b949e; }
+
+.section-title {
+    color: #58a6ff;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+/* ── Timeline view ────────────────────────────────────────────── */
+
+#timeline-screen {
+    layout: horizontal;
+}
+
+#timeline-list {
+    width: 1fr;
+    border: round #30363d;
+    background: #161b22;
+    padding: 0 1;
+}
+
+#turn-detail {
+    width: 1fr;
+    border: round #30363d;
+    background: #161b22;
+    padding: 1 2;
+}
+
+.timeline-item {
+    padding: 0 1;
+    height: 1;
+    color: #e6edf3;
+}
+
+.timeline-selected {
+    background: #21262d;
+    color: #58a6ff;
+}
+
+.timeline-user     { color: #79c0ff; }
+.timeline-assistant { color: #3fb950; }
+.timeline-tool-use { color: #d29922; }
+.timeline-tool-result { color: #e6edf3; }
+.timeline-system   { color: #8b949e; background: #21262d; }
+.timeline-warning  { color: #f85149; text-style: bold; }
+
+/* ── Advisor panel ────────────────────────────────────────────── */
+
+#advisor-screen {
+    layout: vertical;
+    padding: 1 2;
+}
+
+.advisor-rec {
+    border: round #30363d;
+    background: #161b22;
+    padding: 1 2;
+    margin-bottom: 1;
+}
+
+.advisor-rec-add  { border: round #3fb950; }
+.advisor-rec-trim { border: round #f85149; }
+.advisor-rec-warn { border: round #d29922; }
+.advisor-rec-restructure { border: round #79c0ff; }
+
+.advisor-action { text-style: bold; }
+.advisor-impact { color: #8b949e; }
+.advisor-content { color: #e6edf3; margin-top: 1; }
+.advisor-evidence { color: #8b949e; margin-top: 1; }
+
+/* ── Live watch panel ─────────────────────────────────────────── */
+
+#live-screen {
+    layout: horizontal;
+}
+
+#live-events {
+    width: 2fr;
+    border: round #30363d;
+    background: #161b22;
+    padding: 0 1;
+}
+
+#live-metrics {
+    width: 1fr;
+    border: round #30363d;
+    background: #161b22;
+    padding: 1 2;
+}
+
+.live-metric-label  { color: #8b949e; }
+.live-metric-value  { color: #e6edf3; text-style: bold; }
+.live-metric-warn   { color: #d29922; text-style: bold; }
+.live-metric-danger { color: #f85149; text-style: bold; }
+
+.compaction-risk-low    { color: #3fb950; }
+.compaction-risk-medium { color: #d29922; }
+.compaction-risk-high   { color: #f85149; }
+
+/* ── Metrics bar ──────────────────────────────────────────────── */
+
+.metrics-bar {
+    height: 1;
+    background: #21262d;
+}
+
+.metrics-bar-fill-a { background: #3fb950; }
+.metrics-bar-fill-b { background: #58a6ff; }
+.metrics-bar-fill-c { background: #d29922; }
+.metrics-bar-fill-d { background: #f85149; }
+
+/* ── Misc utility ─────────────────────────────────────────────── */
+
+.dim    { color: #8b949e; }
+.bright { color: #e6edf3; }
+.accent { color: #58a6ff; }
+.success { color: #3fb950; }
+.warning { color: #d29922; }
+.danger  { color: #f85149; }
+
+.separator {
+    color: #30363d;
+    height: 1;
+}
+
+Button {
+    background: #21262d;
+    color: #e6edf3;
+    border: round #30363d;
+}
+
+Button:hover {
+    background: #30363d;
+    color: #58a6ff;
+}
+
+Button:focus {
+    border: round #58a6ff;
+}
+
+ListView {
+    background: #0d1117;
+    border: round #30363d;
+}
+
+ListItem {
+    background: #0d1117;
+    padding: 0 1;
+}
+
+ListItem:hover {
+    background: #161b22;
+}
+
+ListItem.--highlight {
+    background: #21262d;
+}
+
+Label {
+    background: transparent;
+}

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "prism-cc"
+version = "0.1.0"
+description = "Session intelligence for Claude Code — find why your sessions fail and fix them"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["claude", "claude-code", "ai", "developer-tools", "tui"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "textual>=0.80.0",
+    "rich>=14.0.0",
+    "typer>=0.12.0",
+    "watchdog>=4.0.0",
+]
+
+[project.scripts]
+prism = "prism.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/prism"
+Repository = "https://github.com/YOUR_USERNAME/prism"
+Issues = "https://github.com/YOUR_USERNAME/prism/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-textual-snapshot>=0.4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["prism"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
