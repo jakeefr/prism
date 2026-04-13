@@ -11,11 +11,13 @@ from prism.parser import (
     AssistantRecord,
     ContentBlock,
     ParseResult,
+    ProjectInfo,
     SystemRecord,
     UserRecord,
     discover_projects,
     parse_record,
     parse_session_file,
+    project_path_to_encoded_name,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -352,3 +354,42 @@ class TestDiscoverProjects:
         projects = discover_projects(tmp_path)
         assert len(projects[0].session_files) == 1
         assert projects[0].session_files[0].suffix == ".jsonl"
+
+
+# ---------------------------------------------------------------------------
+# project_path_to_encoded_name tests
+# ---------------------------------------------------------------------------
+
+class TestProjectPathToEncodedName:
+    """Verify encoding round-trips for Windows paths, Unix paths, and display names."""
+
+    def test_unix_absolute_path(self):
+        assert project_path_to_encoded_name("/home/user/myproject") == "-home-user-myproject"
+
+    def test_unix_nested_path(self):
+        assert project_path_to_encoded_name("/home/alice/work/proj") == "-home-alice-work-proj"
+
+    def test_windows_backslash_path(self):
+        # Native Windows path with backslash separators
+        assert project_path_to_encoded_name("D:\\jarvis\\space") == "D--jarvis-space"
+
+    def test_windows_forward_slash_path(self):
+        # Windows path written with forward slashes
+        assert project_path_to_encoded_name("D:/jarvis/space") == "D--jarvis-space"
+
+    def test_windows_display_name(self):
+        # Display name as shown in the projects table (D:\ → D-- after decode)
+        assert project_path_to_encoded_name("D//jarvis/space") == "D--jarvis-space"
+
+    def test_already_encoded_name_unchanged(self):
+        # An already-encoded name has no path chars — passes through as-is
+        assert project_path_to_encoded_name("D--jarvis-space") == "D--jarvis-space"
+
+    def test_display_name_roundtrip(self):
+        """display_name -> encode -> same encoded dir name."""
+        encoded = "D--jarvis-space"
+        info = ProjectInfo(encoded_name=encoded, project_dir=Path("."), session_files=[])
+        # display_name replaces "-" with "/" giving "D//jarvis/space"
+        display = info.display_name
+        # re-encoding the display should yield the original encoded name
+        assert project_path_to_encoded_name(display) == encoded

@@ -259,6 +259,32 @@ class ProjectInfo:
         return newest.stat().st_mtime.__class__.__name__  # return mtime float str
 
 
+def project_path_to_encoded_name(path_str: str) -> str:
+    """Convert a path string to a Claude Code encoded project directory name.
+
+    Claude Code stores project sessions under ``~/.claude/projects/`` using
+    directory names that are the absolute project path with every path
+    separator and colon replaced by a hyphen.  This function performs that
+    same normalisation so callers can look up a project by its real path
+    *or* by the display name shown in the projects table.
+
+    Examples::
+
+        "D:\\\\jarvis\\\\space"  ->  "D--jarvis-space"   # native Windows path
+        "D:/jarvis/space"       ->  "D--jarvis-space"   # forward-slash Windows
+        "D//jarvis/space"       ->  "D--jarvis-space"   # display name from table
+        "/home/user/proj"       ->  "-home-user-proj"   # Unix path
+
+    Args:
+        path_str: A real absolute path (any OS) or a display name from the
+                  projects table.
+
+    Returns:
+        The encoded directory name used by Claude Code.
+    """
+    return path_str.replace("\\", "-").replace("/", "-").replace(":", "-")
+
+
 def discover_projects(base_dir: Path | None = None) -> list[ProjectInfo]:
     """Discover all Claude Code projects under base_dir (default: ~/.claude/projects).
 

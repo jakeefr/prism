@@ -18,7 +18,13 @@ from rich.text import Text
 
 from prism import __version__
 from prism.analyzer import analyze_project, score_to_grade
-from prism.parser import CLAUDE_PROJECTS_DIR, ProjectInfo, discover_projects, parse_session_file
+from prism.parser import (
+    CLAUDE_PROJECTS_DIR,
+    ProjectInfo,
+    discover_projects,
+    parse_session_file,
+    project_path_to_encoded_name,
+)
 
 # Force UTF-8 output on Windows so Unicode symbols render correctly
 if hasattr(sys.stdout, "reconfigure"):
@@ -227,6 +233,7 @@ def advise_cmd(
         "--project",
         "-p",
         help="Path to a specific project directory.",
+        exists=False,
     ),
     apply: bool = typer.Option(
         False,
@@ -393,22 +400,58 @@ def _resolve_projects(
     project_path: Path | None,
     base_dir: Path | None,
 ) -> list[ProjectInfo]:
-    """Return a list of ProjectInfo objects based on CLI options."""
+    """Return a list of ProjectInfo objects based on CLI options.
+
+    The ``--project`` flag accepts any of:
+
+    * The actual path to a Claude Code project directory (inside
+      ``~/.claude/projects/``), e.g. ``~/.claude/projects/D--jarvis-space``.
+    * The real absolute path of the user's workspace on any OS, e.g.
+      ``D:\\jarvis\\space`` or ``/home/user/proj``.  The path is encoded
+      to the Claude Code convention and looked up under *effective_base*.
+    * The display name shown in the projects table, e.g. ``D//jarvis/space``
+      or ``/home/user/proj``.  Forward-slash normalisation by ``pathlib``
+      means this is equivalent to passing the real path on most systems.
+    """
     effective_base = base_dir or CLAUDE_PROJECTS_DIR
 
     if project_path is not None:
-        # User pointed at a specific project directory
+        # Strategy 1: the argument is already a Claude Code project directory
+        # that contains JSONL session files — use it directly.
         if project_path.is_dir():
-            from prism.parser import ProjectInfo
-            sessions = sorted(project_path.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+            sessions = sorted(
+                project_path.glob("*.jsonl"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if sessions:
+                return [ProjectInfo(
+                    encoded_name=project_path.name,
+                    project_dir=project_path,
+                    session_files=sessions,
+                )]
+
+        # Strategy 2: interpret the argument as a real path or display name
+        # and look up the corresponding encoded directory inside effective_base.
+        encoded = project_path_to_encoded_name(str(project_path))
+        candidate = effective_base / encoded
+        if candidate.is_dir():
+            sessions = sorted(
+                candidate.glob("*.jsonl"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
             return [ProjectInfo(
-                encoded_name=project_path.name,
-                project_dir=project_path,
+                encoded_name=encoded,
+                project_dir=candidate,
                 session_files=sessions,
             )]
-        else:
-            err_console.print(f"[red]Project path is not a directory: {project_path}[/red]")
-            return []
+
+        err_console.print(f"[red]Project not found: {project_path}[/red]")
+        err_console.print(
+            f"[dim]Tried encoded name '{encoded}' in {effective_base}[/dim]"
+        )
+        return []
 
     return discover_projects(effective_base)
 
