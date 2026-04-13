@@ -7,7 +7,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jakeefr/prism/tests.yml?label=tests)](https://github.com/jakeefr/prism/actions)
 
-![PRISM demo](https://raw.githubusercontent.com/jakeefr/prism/main/demo.gif)
+![PRISM demo](demo.gif)
 
 ```bash
 pip install prism-cc
