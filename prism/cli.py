@@ -5,7 +5,6 @@ Thin layer that calls analyzer / advisor / app. No business logic here.
 
 from __future__ import annotations
 
-import io
 import json
 import sys
 from pathlib import Path

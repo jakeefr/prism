@@ -5,7 +5,6 @@ from __future__ import annotations
 import threading
 import time
 from pathlib import Path
-from typing import Callable
 
 from textual.app import ComposeResult
 from textual.message import Message
@@ -14,12 +13,7 @@ from textual.widget import Widget
 from textual.widgets import Label, RichLog
 
 from prism.parser import CLAUDE_PROJECTS_DIR, parse_session_file
-from prism.analyzer import (
-    analyze_tool_health,
-    analyze_token_efficiency,
-    analyze_context_hygiene,
-    estimate_record_tokens,
-)
+from prism.analyzer import estimate_record_tokens
 
 
 class LiveWatcher(Widget):

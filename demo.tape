@@ -6,8 +6,8 @@ Output demo.gif
 
 Set Shell "bash"
 Set FontSize 14
-Set Width 140
-Set Height 40
+Set Width 1200
+Set Height 650
 Set Theme "Dracula"
 Set Padding 20
 Set TypingSpeed 50ms
@@ -23,7 +23,7 @@ Sleep 5s
 Sleep 3s
 
 # ── 2. prism advise on worst project ─────────────────────────────────────────
-Type "prism advise --project ~/.claude/projects/D--myapp"
+Type "prism advise --project ~/.claude/projects/my-project"
 Enter
 Sleep 4s
 

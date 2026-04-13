@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import datetime
 import time
 from pathlib import Path
 
 from textual.app import App, ComposeResult, CSSPathType
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.message import Message
 from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import (
@@ -19,15 +17,12 @@ from textual.widgets import (
     ListItem,
     ListView,
     RichLog,
-    TabbedContent,
-    TabPane,
 )
 
 from prism.advisor import generate_advice
 from prism.analyzer import (
     ProjectHealthReport,
     analyze_project,
-    estimate_record_tokens,
 )
 from prism.parser import (
     CLAUDE_PROJECTS_DIR,

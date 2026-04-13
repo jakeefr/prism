@@ -67,18 +67,18 @@ prism watch
 
 ```
  Project                   Overall   Token Eff.  Tool Health  Ctx Hygiene  MD Adherence  Continuity
- myapp            C+        D           B+           D            C             A
- ai-assistant          C         F           A            B            B+            A-
- data-pipeline        C+        C+          D            B            C+            B
- web-scraper                  C+        D+          B            B+           B             A
- D//prism                   B+        B+          A-           B+           A             A
+ myapp                      C+        D           B+           D            C             A
+ ai-assistant               C         F           A            B            B+            A-
+ data-pipeline              C+        C+          D            B            C+            B
+ web-scraper                C+        D+          B            B+           B             A
+ cli-tool                   B+        B+          A-           B+           A             A
 ```
 
 Followed by the advisor:
 
 ```
 ╭──────────────────────────────────────────────────────────╮
-│  PRISM ADVISOR — recommendations for myapp        │
+│  PRISM ADVISOR — recommendations for myapp               │
 ╰──────────────────────────────────────────────────────────╯
 
   ✦ TRIM  (High impact — silent token drain every session)
@@ -166,7 +166,7 @@ cd prism
 pip install -e .
 ```
 
-Requires Python 3.11+. No Claude API key needed — reads local files only. Works on macOS and Linux. Windows support via WSL.
+Requires Python 3.11+. No Claude API key needed — reads local files only. Works on macOS, Linux, and Windows.
 
 ---
 
@@ -177,8 +177,8 @@ Issues and PRs welcome. If you run `prism analyze` and find something interestin
 ```bash
 git clone https://github.com/jakeefr/prism
 cd prism
-pip install -e ".[dev]"
-pytest
+uv sync --dev
+uv run pytest
 ```
 
 ---
