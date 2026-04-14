@@ -1,0 +1,18 @@
+{
+  "name": "prism",
+  "version": "0.2.0",
+  "description": "Session intelligence for Claude Code — find why your sessions fail and fix them",
+  "author": "jakeefr",
+  "license": "MIT",
+  "repository": "https://github.com/jakeefr/prism",
+  "claudeCode": {
+    "minVersion": "2.0.0"
+  },
+  "skills": [
+    {
+      "name": "prism-analyze",
+      "path": "skills/prism-analyze/SKILL.md"
+    }
+  ],
+  "hooks": []
+}

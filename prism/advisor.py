@@ -209,6 +209,60 @@ def _recommend_restructure(report: ProjectHealthReport, claude_md_path: Path | N
     )
 
 
+def _recommend_attention_curve(
+    report: ProjectHealthReport,
+    claude_md_path: Path | None,
+) -> list[Recommendation]:
+    """Score CLAUDE.md rules by their position in the U-shaped attention curve.
+
+    Rules in the middle 55% of the file get the least model attention.
+    Flag critical rules (Never/NEVER/CRITICAL/DO NOT/ALWAYS/MUST NOT) that are
+    in the danger zone and recommend moving them to the top or bottom.
+    """
+    if claude_md_path is None or not claude_md_path.exists():
+        return []
+
+    try:
+        lines = claude_md_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+    total = len(lines)
+    if total < 20:  # Too short to matter
+        return []
+
+    danger_start = int(total * 0.20)
+    danger_end = int(total * 0.75)
+
+    critical_patterns = ["NEVER", "CRITICAL", "DO NOT", "ALWAYS", "MUST NOT"]
+    buried_rules: list[tuple[int, str]] = []
+
+    for i, line in enumerate(lines):
+        if danger_start <= i <= danger_end:
+            if any(p in line.upper() for p in critical_patterns):
+                buried_rules.append((i + 1, line.strip()))
+
+    if not buried_rules:
+        return []
+
+    rule_list = "\n".join(
+        f"  Line {lineno}: {text[:80]}"
+        for lineno, text in buried_rules[:5]
+    )
+
+    return [Recommendation(
+        action="RESTRUCTURE",
+        impact="Medium",
+        rationale=(
+            f"Found {len(buried_rules)} critical rule(s) in the attention dead zone "
+            f"(lines {danger_start}–{danger_end} of {total}). "
+            "LLMs follow a U-shaped attention curve — middle content gets least focus. "
+            "Move NEVER/CRITICAL rules to the first 20% or last 25% of your CLAUDE.md."
+        ),
+        content=f"Move these rules to the top or bottom of your CLAUDE.md:\n{rule_list}",
+    )]
+
+
 def _recommend_continuity(report: ProjectHealthReport) -> Recommendation | None:
     """Recommend session continuity improvements."""
     if report.session_continuity.truncated_sessions == 0:
@@ -267,6 +321,9 @@ def generate_advice(
     rec = _recommend_restructure(report, claude_md_path)
     if rec:
         recs.append(rec)
+
+    # Attention curve — critical rules buried in middle of CLAUDE.md
+    recs.extend(_recommend_attention_curve(report, claude_md_path))
 
     # Continuity
     rec = _recommend_continuity(report)

@@ -112,6 +112,14 @@ def analyze_cmd(
         _print_json(reports)
     else:
         _print_rich_report(reports)
+        try:
+            from prism.dashboard import generate_dashboard, get_dashboard_path
+            dashboard_path = generate_dashboard(
+                [r for _, r in reports], get_dashboard_path()
+            )
+            console.print(f"[dim]Dashboard updated: {dashboard_path}[/dim]")
+        except Exception:
+            pass
 
 
 def _print_rich_report(reports: list) -> None:
@@ -390,6 +398,59 @@ def projects_cmd(
         f"\n[dim]{len(projects)} project(s) found in "
         f"{base_dir or CLAUDE_PROJECTS_DIR}[/dim]\n"
     )
+
+
+# ---------------------------------------------------------------------------
+# prism dashboard
+# ---------------------------------------------------------------------------
+
+@app.command("dashboard")
+def dashboard_cmd(
+    serve: bool = typer.Option(
+        False,
+        "--serve",
+        help="Serve dashboard on localhost:19821 and open in browser.",
+    ),
+    no_open: bool = typer.Option(
+        False,
+        "--no-open",
+        help="Generate dashboard only — do not open browser.",
+    ),
+    base_dir: Optional[Path] = typer.Option(
+        None,
+        "--base-dir",
+        help="Override ~/.claude/projects/ directory.",
+        hidden=True,
+    ),
+) -> None:
+    """Generate the HTML dashboard and open it in your browser."""
+    from prism.dashboard import generate_dashboard, get_dashboard_path, serve_dashboard
+
+    projects = _resolve_projects(None, base_dir)
+    if not projects:
+        _no_projects_error(base_dir)
+        raise typer.Exit(1)
+
+    reports = []
+    for proj in projects:
+        try:
+            from prism.analyzer import analyze_project as _analyze
+            reports.append(_analyze(proj))
+        except Exception as exc:
+            err_console.print(f"[yellow]Warning: {proj.encoded_name}: {exc}[/yellow]")
+
+    dashboard_path = generate_dashboard(reports, get_dashboard_path())
+    console.print(f"[green]Dashboard generated:[/green] {dashboard_path}")
+
+    if serve:
+        console.print(f"[dim]Serving on http://localhost:19821/{dashboard_path.name} — Ctrl+C to stop[/dim]")
+        try:
+            serve_dashboard(dashboard_path)
+        except KeyboardInterrupt:
+            pass
+    elif not no_open:
+        import webbrowser
+        webbrowser.open(dashboard_path.as_uri())
 
 
 # ---------------------------------------------------------------------------

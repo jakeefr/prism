@@ -1,3 +1,19 @@
+<p align="center">
+  <img src="assets/splash.svg" alt="PRISM" width="800">
+</p>
+
+<p align="center">
+  <img src="assets/dashboard-preview.png" alt="The HTML dashboard — open in any browser with prism dashboard" width="900">
+  <br>
+  <em>The HTML dashboard — open in any browser with <code>prism dashboard</code></em>
+</p>
+
+<p align="center">
+  <img src="assets/dashboard-detail.png" alt="Expand any project to see dimension scores, top issues, and CLAUDE.md recommendations" width="900">
+  <br>
+  <em>Expand any project to see dimension scores, top issues, and CLAUDE.md recommendations</em>
+</p>
+
 # Prism
 
 **Session intelligence for Claude Code. Find out why your sessions are burning tokens, and fix them.**
@@ -6,12 +22,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jakeefr/prism/tests.yml?label=tests)](https://github.com/jakeefr/prism/actions)
+[![PyPI downloads](https://img.shields.io/pypi/dm/prism-cc?label=installs)](https://pypi.org/project/prism-cc/)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://github.com/jakeefr/prism)
+[![Zero dependencies](https://img.shields.io/badge/external%20deps-4-brightgreen.svg)](pyproject.toml)
 
 ![PRISM demo](https://raw.githubusercontent.com/jakeefr/prism/main/demo.gif)
-
-```bash
-pip install prism-cc
-```
 
 ---
 
@@ -56,6 +71,9 @@ prism advise
 
 # Open the full interactive dashboard
 prism
+
+# Open the HTML dashboard in your browser
+prism dashboard
 
 # Watch a session live as it runs
 prism watch
@@ -125,6 +143,55 @@ PRISM never touches Claude Code. It never modifies your sessions. It reads the J
 
 ---
 
+## Trust & Safety
+
+<details>
+<summary><b>Does PRISM send any data anywhere?</b></summary>
+
+No. PRISM never makes network calls. All analysis runs locally against files
+already on your machine. No telemetry, no analytics, no external servers.
+</details>
+
+<details>
+<summary><b>Can PRISM hurt my Claude Code sessions?</b></summary>
+
+No. PRISM is read-only — it never modifies session files. It reads
+`~/.claude/projects/` but never writes to it. Your sessions are completely
+untouched.
+</details>
+
+<details>
+<summary><b>Does PRISM modify my CLAUDE.md without asking?</b></summary>
+
+Only if you explicitly run `prism advise --apply` and confirm the prompt.
+`prism advise` (without --apply) only prints recommendations — it never
+touches any file.
+</details>
+
+<details>
+<summary><b>What data does PRISM read?</b></summary>
+
+Only the JSONL session files Claude Code writes to `~/.claude/projects/`
+and your CLAUDE.md files. It reads nothing else. No API keys, no environment
+variables, no network traffic.
+</details>
+
+<details>
+<summary><b>Does it work with Claude Code Max / Pro / Team?</b></summary>
+
+Yes — PRISM reads local session files which are written by all Claude Code
+subscription tiers. The analysis works identically regardless of your plan.
+</details>
+
+<details>
+<summary><b>What are PRISM's dependencies?</b></summary>
+
+Four packages: textual, rich, typer, watchdog. All well-maintained,
+widely-used Python libraries. No C extensions, no compiled binaries.
+</details>
+
+---
+
 ## The CLAUDE.md re-read problem
 
 Every tool call Claude Code makes re-reads your CLAUDE.md from the top of the context. A 200-line CLAUDE.md × 50 tool calls = 10,000 tokens spent on instructions, per session. If your CLAUDE.md has grown to include personality instructions, full documentation copies, or rules that only apply to one subdirectory — you're paying for all of it every time.
@@ -144,6 +211,9 @@ prism analyze --project ~/myproject   # One project only
 prism analyze --json           # JSON output for scripting
 prism advise                   # CLAUDE.md recommendations
 prism advise --apply           # Write recommendations (with confirmation)
+prism dashboard                # Generate HTML dashboard and open in browser
+prism dashboard --serve        # Serve on localhost:19821
+prism dashboard --no-open      # Generate only, don't open browser
 prism replay <session-id>      # Scrub through a session timeline
 prism watch                    # Live dashboard for the running session
 prism projects                 # List all projects with session counts
@@ -154,11 +224,15 @@ prism projects                 # List all projects with session counts
 ## Install
 
 ```bash
-# pip
+# pip (standalone CLI)
 pip install prism-cc
 
 # pipx (recommended — isolated install)
 pipx install prism-cc
+
+# Claude Code plugin
+/plugin marketplace add jakeefr/prism
+/plugin install prism
 
 # from source
 git clone https://github.com/jakeefr/prism

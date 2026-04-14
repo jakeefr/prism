@@ -9,6 +9,7 @@ import pytest
 from prism.advisor import (
     AdvisorReport,
     Recommendation,
+    _recommend_attention_curve,
     apply_advice,
     format_advice_plain,
     generate_advice,
@@ -218,6 +219,62 @@ class TestApplyAdvice:
         result = apply_advice(advice, md, confirm=False)
         assert result is False  # rule already present, nothing to add
 
+class TestAttentionCurve:
+    def test_short_file_no_recommendation(self, tmp_path):
+        """File with <20 lines should never generate a recommendation."""
+        md = tmp_path / "CLAUDE.md"
+        md.write_text("\n".join(["NEVER do X", "ALWAYS do Y"] * 5), encoding="utf-8")
+        # 10 lines — below the 20-line threshold
+        project = _make_project(tmp_path, [FIXTURES / "sample_session.jsonl"])
+        report = analyze_project(project, claude_md_path=md)
+        recs = _recommend_attention_curve(report, md)
+        assert recs == []
+
+    def test_critical_rule_in_danger_zone_generates_recommendation(self, tmp_path):
+        """Critical rule in middle 55% of file should trigger a RESTRUCTURE rec."""
+        md = tmp_path / "CLAUDE.md"
+        # 40 lines total. danger_start=8, danger_end=30.
+        # Put a NEVER rule at line 20 (index 19) — firmly in the danger zone.
+        lines = [f"# line {i}" for i in range(40)]
+        lines[19] = "NEVER edit migration files directly"
+        md.write_text("\n".join(lines), encoding="utf-8")
+        project = _make_project(tmp_path, [FIXTURES / "sample_session.jsonl"])
+        report = analyze_project(project, claude_md_path=md)
+        recs = _recommend_attention_curve(report, md)
+        assert len(recs) == 1
+        assert recs[0].action == "RESTRUCTURE"
+        assert "NEVER" in recs[0].content or "migration" in recs[0].content.lower()
+        assert "attention" in recs[0].rationale.lower() or "dead zone" in recs[0].rationale.lower()
+
+    def test_critical_rules_at_top_no_recommendation(self, tmp_path):
+        """Critical rules in the first 20% of the file should not be flagged."""
+        md = tmp_path / "CLAUDE.md"
+        # 40 lines total. danger_start=8.
+        # Put NEVER at line 2 (index 1) — safely in the top 20%.
+        lines = [f"# line {i}" for i in range(40)]
+        lines[1] = "NEVER edit migration files directly"
+        md.write_text("\n".join(lines), encoding="utf-8")
+        project = _make_project(tmp_path, [FIXTURES / "sample_session.jsonl"])
+        report = analyze_project(project, claude_md_path=md)
+        recs = _recommend_attention_curve(report, md)
+        assert recs == []
+
+    def test_attention_curve_integrated_into_generate_advice(self, tmp_path):
+        """generate_advice should include attention curve recs when applicable."""
+        md = tmp_path / "CLAUDE.md"
+        lines = [f"# line {i}" for i in range(40)]
+        lines[19] = "NEVER edit migration files directly"
+        md.write_text("\n".join(lines), encoding="utf-8")
+        project = _make_project(tmp_path, [FIXTURES / "sample_session.jsonl"])
+        report = analyze_project(project, claude_md_path=md)
+        advice = generate_advice(report, claude_md_path=md)
+        restructure_recs = [r for r in advice.recommendations if r.action == "RESTRUCTURE"]
+        # At least one RESTRUCTURE from attention curve
+        assert any("attention" in r.rationale.lower() or "dead zone" in r.rationale.lower()
+                   for r in restructure_recs)
+
+
+class TestApplyAdviceExtra:
     def test_apply_creates_content_from_scratch(self, tmp_path):
         md = tmp_path / "CLAUDE.md"
         # No existing file
