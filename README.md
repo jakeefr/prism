@@ -71,6 +71,14 @@ prism dashboard
 prism watch
 ```
 
+```
+# Or install as a Claude Code plugin
+/plugin marketplace add jakeefr/prism
+/plugin install prism@prism
+/reload-plugins
+```
+Then just ask Claude: "analyze my Claude Code sessions"
+
 ---
 
 ## What you'll see
@@ -263,10 +271,11 @@ Just ask:
 
 Claude will run `prism analyze` and interpret the results.
 
-> **Note:** PRISM still needs to be installed via pip to work:
+> **Note:** PRISM needs to be installed via pip to work:
 > `pip install prism-cc`
-> The plugin teaches Claude Code how to invoke it —
-> pip provides the actual tool.
+> If pip isn't installed, Claude Code will detect this
+> and walk you through the installation automatically
+> before running the analysis.
 
 ---
 
