@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/splash.svg" alt="PRISM" width="800">
+  <img src="https://raw.githubusercontent.com/jakeefr/prism/main/assets/splash.svg" alt="PRISM" width="800">
 </p>
 
 ![PRISM demo](https://raw.githubusercontent.com/jakeefr/prism/main/demo.gif)
@@ -109,10 +109,10 @@ Followed by the advisor:
 <summary><b>📊 HTML Dashboard Preview</b></summary>
 <br>
 
-![PRISM Dashboard](assets/dashboard-preview.png)
+![PRISM Dashboard](https://raw.githubusercontent.com/jakeefr/prism/main/assets/dashboard-preview.png)
 *The HTML dashboard — open in any browser with `prism dashboard`*
 
-![PRISM Dashboard Detail](assets/dashboard-detail.png)
+![PRISM Dashboard Detail](https://raw.githubusercontent.com/jakeefr/prism/main/assets/dashboard-detail.png)
 *Expand any project to see dimension scores, top issues, and CLAUDE.md recommendations*
 
 </details>
