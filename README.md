@@ -14,15 +14,19 @@
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://github.com/jakeefr/prism)
 [![Zero dependencies](https://img.shields.io/badge/external%20deps-4-brightgreen.svg)](pyproject.toml)
 
-<br>
-
-**Session intelligence for Claude Code. Find out why your sessions are burning tokens, and fix them.**
-
 </div>
 
 <div align="center">
 
 [![Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1123233&theme=dark&t=1776146492351)](https://www.producthunt.com/products/prism-24?utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-prism-d6c1f55c-6f43-456f-bf84-790dbc1ad4ae)
+
+</div>
+
+<div align="center">
+
+<br>
+
+**Session intelligence for Claude Code. Find out why your sessions are burning tokens, and fix them.**
 
 </div>
 
