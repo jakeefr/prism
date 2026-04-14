@@ -2,17 +2,7 @@
   <img src="assets/splash.svg" alt="PRISM" width="800">
 </p>
 
-<p align="center">
-  <img src="assets/dashboard-preview.png" alt="The HTML dashboard — open in any browser with prism dashboard" width="900">
-  <br>
-  <em>The HTML dashboard — open in any browser with <code>prism dashboard</code></em>
-</p>
-
-<p align="center">
-  <img src="assets/dashboard-detail.png" alt="Expand any project to see dimension scores, top issues, and CLAUDE.md recommendations" width="900">
-  <br>
-  <em>Expand any project to see dimension scores, top issues, and CLAUDE.md recommendations</em>
-</p>
+![PRISM demo](https://raw.githubusercontent.com/jakeefr/prism/main/demo.gif)
 
 # Prism
 
@@ -25,8 +15,6 @@
 [![PyPI downloads](https://img.shields.io/pypi/dm/prism-cc?label=installs)](https://pypi.org/project/prism-cc/)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://github.com/jakeefr/prism)
 [![Zero dependencies](https://img.shields.io/badge/external%20deps-4-brightgreen.svg)](pyproject.toml)
-
-![PRISM demo](https://raw.githubusercontent.com/jakeefr/prism/main/demo.gif)
 
 ---
 
@@ -112,6 +100,18 @@ Followed by the advisor:
     These only matter in src/ — loading them globally wastes
     tokens in every session that doesn't touch that directory.
 ```
+
+<details>
+<summary><b>📊 HTML Dashboard Preview</b></summary>
+<br>
+
+![PRISM Dashboard](assets/dashboard-preview.png)
+*The HTML dashboard — open in any browser with `prism dashboard`*
+
+![PRISM Dashboard Detail](assets/dashboard-detail.png)
+*Expand any project to see dimension scores, top issues, and CLAUDE.md recommendations*
+
+</details>
 
 ---
 
