@@ -298,6 +298,69 @@ class TestParseRecord:
         assert isinstance(record, SystemRecord)
         assert record.subtype == "continuation"
 
+    def test_classify_resume_as_system_record(self):
+        """User record with resume caveat is promoted to SystemRecord."""
+        data = {
+            "uuid": "u-resume",
+            "parentUuid": None,
+            "isSidechain": False,
+            "sessionId": "sess1",
+            "timestamp": "2026-04-10T10:00:00.000Z",
+            "version": "2.1.98",
+            "cwd": "/home/user/proj",
+            "gitBranch": "main",
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "<local-command-caveat>Session resumed.</local-command-caveat>"}]
+            }
+        }
+        record = parse_record(data)
+        assert isinstance(record, SystemRecord)
+        assert record.subtype == "resume"
+
+    def test_classify_task_notification_as_system_record(self):
+        """User record with task notification is promoted to SystemRecord."""
+        data = {
+            "uuid": "u-task",
+            "parentUuid": None,
+            "isSidechain": False,
+            "sessionId": "sess1",
+            "timestamp": "2026-04-10T10:00:00.000Z",
+            "version": "2.1.98",
+            "cwd": "/home/user/proj",
+            "gitBranch": "main",
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "<task-notification>Background task completed.</task-notification>"}]
+            }
+        }
+        record = parse_record(data)
+        assert isinstance(record, SystemRecord)
+        assert record.subtype == "task_notification"
+
+    def test_classify_stop_hook_as_system_record(self):
+        """User record with stop hook feedback is promoted to SystemRecord."""
+        data = {
+            "uuid": "u-stop",
+            "parentUuid": None,
+            "isSidechain": False,
+            "sessionId": "sess1",
+            "timestamp": "2026-04-10T10:00:00.000Z",
+            "version": "2.1.98",
+            "cwd": "/home/user/proj",
+            "gitBranch": "main",
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "Stop hook feedback: lint failed with 3 errors"}]
+            }
+        }
+        record = parse_record(data)
+        assert isinstance(record, SystemRecord)
+        assert record.subtype == "stop_hook"
+
 
 # ---------------------------------------------------------------------------
 # parse_session_file tests

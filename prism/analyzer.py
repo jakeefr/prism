@@ -407,7 +407,7 @@ class ContextHygieneMetrics:
 
 def _count_turns(records: list[SessionRecord]) -> int:
     """Count user+assistant turn pairs."""
-    return sum(1 for r in records if r.type in ("user", "assistant"))
+    return sum(1 for r in records if isinstance(r, (UserRecord, AssistantRecord)))
 
 
 def _has_repeated_tool_pattern_after_boundary(records: list[SessionRecord]) -> bool:

@@ -167,12 +167,13 @@ def parse_record(data: dict[str, Any]) -> SessionRecord | None:
         message = data.get("message", {})
         content_raw = message.get("content", []) if isinstance(message, dict) else []
         blocks = _parse_content_blocks(content_raw)
-        subtype = _classify_system_message(_extract_text_from_blocks(blocks))
+        text = _extract_text_from_blocks(blocks)
+        subtype = _classify_system_message(text)
         if subtype:
             return SystemRecord(
                 **envelope_kwargs,
                 subtype=subtype,
-                summary=_extract_text_from_blocks(blocks)[:200],
+                summary=text[:200],
             )
         return UserRecord(**envelope_kwargs, content=blocks)
 
