@@ -56,34 +56,20 @@ def estimate_record_tokens(record: SessionRecord) -> int:
 # Letter grade assignment
 # ---------------------------------------------------------------------------
 
+_GRADE_THRESHOLDS = [
+    (95, "A+"), (90, "A"), (85, "A-"),
+    (80, "B+"), (75, "B"), (70, "B-"),
+    (65, "C+"), (60, "C"), (55, "C-"),
+    (50, "D+"), (45, "D"), (40, "D-"),
+]
+
+
 def score_to_grade(score: float) -> str:
-    """Convert a 0–100 float score to a letter grade with +/- modifiers."""
-    if score >= 95:
-        return "A+"
-    elif score >= 90:
-        return "A"
-    elif score >= 85:
-        return "A-"
-    elif score >= 80:
-        return "B+"
-    elif score >= 75:
-        return "B"
-    elif score >= 70:
-        return "B-"
-    elif score >= 65:
-        return "C+"
-    elif score >= 60:
-        return "C"
-    elif score >= 55:
-        return "C-"
-    elif score >= 50:
-        return "D+"
-    elif score >= 45:
-        return "D"
-    elif score >= 40:
-        return "D-"
-    else:
-        return "F"
+    """Convert a 0-100 float score to a letter grade with +/- modifiers."""
+    for threshold, grade in _GRADE_THRESHOLDS:
+        if score >= threshold:
+            return grade
+    return "F"
 
 
 # ---------------------------------------------------------------------------
