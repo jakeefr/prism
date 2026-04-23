@@ -12,7 +12,12 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Label, RichLog
 
-from prism.parser import CLAUDE_PROJECTS_DIR, parse_session_file
+from prism.parser import (
+    CLAUDE_PROJECTS_DIR,
+    AssistantRecord,
+    SystemRecord,
+    parse_session_file,
+)
 from prism.analyzer import estimate_record_tokens
 
 
@@ -157,13 +162,13 @@ class LiveWatcher(Widget):
         total_tokens = sum(estimate_record_tokens(r) for r in result.records)
         tool_calls = sum(
             1 for r in result.records
-            if hasattr(r, "content")
-            for b in getattr(r, "content", [])
+            if isinstance(r, AssistantRecord)
+            for b in r.content
             if b.type == "tool_use"
         )
         compactions = sum(
             1 for r in result.records
-            if hasattr(r, "subtype") and getattr(r, "subtype", None) == "compact_boundary"
+            if isinstance(r, SystemRecord) and r.subtype == "compact_boundary"
         )
         risk = min(1.0, total_tokens / self._max_context)
 

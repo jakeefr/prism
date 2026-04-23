@@ -281,12 +281,12 @@ class ProjectInfo:
         return name
 
     @property
-    def last_active(self) -> str | None:
-        """Timestamp of the most recently modified session file."""
+    def last_active(self) -> float | None:
+        """Mtime of the most recently modified session file."""
         if not self.session_files:
             return None
         newest = max(self.session_files, key=lambda p: p.stat().st_mtime)
-        return newest.stat().st_mtime.__class__.__name__  # return mtime float str
+        return newest.stat().st_mtime
 
 
 def project_path_to_encoded_name(path_str: str) -> str:
