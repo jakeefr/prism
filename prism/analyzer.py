@@ -86,18 +86,6 @@ def score_to_grade(score: float) -> str:
         return "F"
 
 
-def grade_to_score(grade: str) -> float:
-    """Convert a letter grade string back to a numeric midpoint."""
-    mapping = {
-        "A+": 97, "A": 92, "A-": 87,
-        "B+": 82, "B": 77, "B-": 72,
-        "C+": 67, "C": 62, "C-": 57,
-        "D+": 52, "D": 47, "D-": 42,
-        "F": 20,
-    }
-    return float(mapping.get(grade, 50))
-
-
 # ---------------------------------------------------------------------------
 # Issue dataclass
 # ---------------------------------------------------------------------------

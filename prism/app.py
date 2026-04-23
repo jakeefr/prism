@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from textual.app import App, ComposeResult, CSSPathType
+from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
@@ -14,7 +14,6 @@ from textual.widgets import (
     Footer,
     Header,
     Label,
-    ListItem,
     ListView,
     RichLog,
 )
@@ -349,21 +348,6 @@ class DashboardScreen(Screen):
 
     def action_select(self) -> None:
         self._update_detail(self._selected_idx)
-
-
-# ---------------------------------------------------------------------------
-# Splash / Loading screen for slow project analysis
-# ---------------------------------------------------------------------------
-
-class LoadingScreen(Screen):
-    """Shown while projects are being analyzed."""
-
-    def compose(self) -> ComposeResult:
-        yield Label(
-            "\n\n  ◈ PRISM — loading projects...\n\n"
-            "  Analyzing session files in ~/.claude/projects/\n",
-            classes="accent",
-        )
 
 
 # ---------------------------------------------------------------------------

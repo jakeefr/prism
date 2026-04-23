@@ -380,30 +380,6 @@ def format_advice_rich(advisor_report: AdvisorReport) -> str:
     return "".join(lines)
 
 
-def format_advice_plain(advisor_report: AdvisorReport) -> str:
-    """Render an AdvisorReport as plain text (no Rich markup)."""
-    lines = []
-    lines.append(
-        f"\n{'─' * 63}\n"
-        f"  PRISM ADVISOR — recommendations for CLAUDE.md\n"
-        f"{'─' * 63}\n\n"
-    )
-
-    if not advisor_report.recommendations:
-        lines.append("  No recommendations — your CLAUDE.md looks healthy!\n")
-        return "".join(lines)
-
-    for rec in advisor_report.recommendations:
-        lines.append(f"  ✦ {rec.action}  ({rec.impact} impact — {rec.rationale})\n")
-        for content_line in rec.content.splitlines():
-            lines.append(f"    {content_line}\n")
-        if rec.session_evidence:
-            lines.append(f"    Sessions: {rec.session_evidence}\n")
-        lines.append("\n")
-
-    return "".join(lines)
-
-
 # ---------------------------------------------------------------------------
 # --apply mode: write changes to CLAUDE.md
 # ---------------------------------------------------------------------------

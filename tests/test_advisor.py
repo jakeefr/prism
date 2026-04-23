@@ -11,7 +11,6 @@ from prism.advisor import (
     Recommendation,
     _recommend_attention_curve,
     apply_advice,
-    format_advice_plain,
     generate_advice,
 )
 from prism.analyzer import analyze_project
@@ -105,43 +104,6 @@ class TestGenerateAdvice:
             assert advice.has_actionable is True
         else:
             assert advice.has_actionable is False
-
-
-class TestFormatAdvice:
-    def test_format_plain_no_recommendations(self, tmp_path):
-        advice = AdvisorReport(project_name="test", recommendations=[], has_actionable=False)
-        output = format_advice_plain(advice)
-        assert "No recommendations" in output
-        assert "PRISM ADVISOR" in output
-
-    def test_format_plain_with_recommendation(self):
-        rec = Recommendation(
-            action="ADD",
-            impact="High",
-            rationale="14 retry loops across 6 sessions",
-            content="Always use non-interactive flags: --yes, -y",
-        )
-        advice = AdvisorReport(
-            project_name="test",
-            recommendations=[rec],
-            has_actionable=True,
-        )
-        output = format_advice_plain(advice)
-        assert "ADD" in output
-        assert "High" in output
-        assert "non-interactive" in output
-
-    def test_format_plain_action_types(self):
-        recs = [
-            Recommendation(action="ADD", impact="High", rationale="r1", content="c1"),
-            Recommendation(action="TRIM", impact="Medium", rationale="r2", content="c2"),
-            Recommendation(action="WARN", impact="Low", rationale="r3", content="c3"),
-            Recommendation(action="RESTRUCTURE", impact="Medium", rationale="r4", content="c4"),
-        ]
-        advice = AdvisorReport(project_name="test", recommendations=recs, has_actionable=True)
-        output = format_advice_plain(advice)
-        for action in ("ADD", "TRIM", "WARN", "RESTRUCTURE"):
-            assert action in output
 
 
 class TestApplyAdvice:

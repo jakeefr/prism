@@ -10,7 +10,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -354,12 +354,6 @@ def discover_projects(base_dir: Path | None = None) -> list[ProjectInfo]:
         return 0.0
 
     return sorted(projects, key=_last_mtime, reverse=True)
-
-
-def iter_session_records(path: Path) -> Iterator[SessionRecord]:
-    """Convenience iterator over records in a single session file."""
-    result = parse_session_file(path)
-    yield from result.records
 
 
 def load_all_sessions(project: ProjectInfo) -> list[ParseResult]:

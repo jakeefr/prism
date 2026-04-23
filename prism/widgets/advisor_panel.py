@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.message import Message
-from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Button, Label, RichLog
+from textual.widgets import Label, RichLog
 
-from prism.advisor import AdvisorReport, Recommendation
+from prism.advisor import AdvisorReport
 
 
 ACTION_COLORS = {

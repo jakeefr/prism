@@ -8,27 +8,6 @@ from textual.widget import Widget
 from textual.widgets import Label
 
 
-def _bar(value: float, max_value: float, width: int = 20, warn_threshold: float = 0.7) -> str:
-    """Render a block progress bar with color-coded fill."""
-    if max_value <= 0:
-        ratio = 0.0
-    else:
-        ratio = min(1.0, value / max_value)
-    filled = round(ratio * width)
-    empty = width - filled
-    return "█" * filled + "░" * empty
-
-
-def _bar_class(ratio: float) -> str:
-    """Return CSS class based on fill ratio."""
-    if ratio >= 0.9:
-        return "live-metric-danger"
-    elif ratio >= 0.7:
-        return "live-metric-warn"
-    else:
-        return "live-metric-value"
-
-
 class CompactionRiskBar(Widget):
     """A progress bar that turns red as context fills."""
 
@@ -99,64 +78,3 @@ class CompactionRiskBar(Widget):
 
     def watch_max_tokens(self, _: int) -> None:
         self._refresh_labels()
-
-
-class MetricsBar(Widget):
-    """Displays key metrics as a horizontal bar with sparklines.
-
-    Shows: token count, tool calls, compaction risk.
-    """
-
-    DEFAULT_CSS = """
-    MetricsBar {
-        height: auto;
-        padding: 0 1;
-        border: round #30363d;
-        background: #161b22;
-        layout: horizontal;
-    }
-    .metric-block {
-        width: 1fr;
-        padding: 0 1;
-    }
-    """
-
-    def __init__(
-        self,
-        total_tokens: int = 0,
-        tool_call_count: int = 0,
-        compaction_count: int = 0,
-        session_count: int = 0,
-        *,
-        name: str | None = None,
-        id: str | None = None,
-        classes: str | None = None,
-    ) -> None:
-        super().__init__(name=name, id=id, classes=classes)
-        self._total_tokens = total_tokens
-        self._tool_call_count = tool_call_count
-        self._compaction_count = compaction_count
-        self._session_count = session_count
-
-    def compose(self) -> ComposeResult:
-        tokens_k = self._total_tokens / 1000
-        yield Label(
-            f"Tokens: [bold]{tokens_k:.1f}k[/bold]",
-            classes="metric-block accent",
-            markup=True,
-        )
-        yield Label(
-            f"Tool calls: [bold]{self._tool_call_count}[/bold]",
-            classes="metric-block",
-            markup=True,
-        )
-        yield Label(
-            f"Compactions: [bold]{self._compaction_count}[/bold]",
-            classes="metric-block warning" if self._compaction_count > 0 else "metric-block",
-            markup=True,
-        )
-        yield Label(
-            f"Sessions: [bold]{self._session_count}[/bold]",
-            classes="metric-block dim",
-            markup=True,
-        )

@@ -12,12 +12,11 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
 from prism import __version__
-from prism.analyzer import analyze_project, score_to_grade
+from prism.analyzer import analyze_project
 from prism.parser import (
     CLAUDE_PROJECTS_DIR,
     ProjectInfo,
