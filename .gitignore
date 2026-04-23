@@ -19,3 +19,7 @@ env/
 .coverage
 htmlcov/
 *.log
+
+# roborev (review DB lives outside repo; this is a safety net)
+.roborev/
+.roborev.toml
