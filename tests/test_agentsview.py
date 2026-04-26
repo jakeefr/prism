@@ -574,6 +574,65 @@ class TestToolCallEnrichment:
         assert len(tool_blocks) == 2
 
 
+    def test_uuid_differs_from_message_id(self, tmp_path: Path):
+        """Tool calls are keyed by message_id, not uuid."""
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", "/home/user/proj"),
+        )
+        _insert_message(conn, "msg-001", "s1", "assistant", content="",
+                         uuid="uuid-different")
+        conn.execute(
+            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
+            " VALUES (?, ?, ?, ?)",
+            ("tc1", "msg-001", "Bash", '{"command": "ls"}'),
+        )
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        rec = results[0].records[0]
+        assert isinstance(rec, AssistantRecord)
+        tool_blocks = [b for b in rec.content if b.type == "tool_use"]
+        assert len(tool_blocks) == 1
+        assert tool_blocks[0].tool_name == "Bash"
+
+    def test_trailing_tool_results_flushed(self, tmp_path: Path):
+        """Tool results from the last assistant message are flushed to the last user record."""
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", "/home/user/proj"),
+        )
+        _insert_message(conn, "m1", "s1", "user", content="do something",
+                         uuid="m1", timestamp="2026-04-20T10:00:00Z")
+        _insert_message(conn, "m2", "s1", "assistant", content="running",
+                         uuid="m2", timestamp="2026-04-20T10:01:00Z")
+        conn.execute(
+            "INSERT INTO tool_calls"
+            " (tool_call_id, message_id, tool_name, input_json, output_text)"
+            " VALUES (?, ?, ?, ?, ?)",
+            ("tc1", "m2", "Bash", '{"command": "ls"}', "file1.py\nfile2.py"),
+        )
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        # The only user record (m1) should get the flushed tool results
+        user_rec = results[0].records[0]
+        assert isinstance(user_rec, UserRecord)
+        result_blocks = [b for b in user_rec.content if b.type == "tool_result"]
+        assert len(result_blocks) == 1
+        assert result_blocks[0].tool_content == "file1.py\nfile2.py"
+
+
 class TestAnalyzeProjectIntegration:
     def test_analyze_with_agentsview_datasource(self, tmp_path: Path):
         from prism.analyzer import ProjectHealthReport, analyze_project
