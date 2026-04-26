@@ -8,34 +8,35 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from prism.cli import app, resolve_agentsview_db
+from prism.cli import _resolve_agentsview_db, app
+from tests.conftest import build_test_db
 
 runner = CliRunner()
 
 
 # ---------------------------------------------------------------------------
-# resolve_agentsview_db priority chain
+# _resolve_agentsview_db priority chain
 # ---------------------------------------------------------------------------
 
 
 class TestResolveAgentsviewDb:
     def test_explicit_path_wins(self, tmp_path: Path) -> None:
         p = tmp_path / "my.db"
-        assert resolve_agentsview_db(p) == p
+        assert _resolve_agentsview_db(p) == p
 
     def test_agentsview_data_dir_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("AGENTSVIEW_DATA_DIR", str(tmp_path))
         monkeypatch.delenv("AGENT_VIEWER_DATA_DIR", raising=False)
-        assert resolve_agentsview_db() == tmp_path / "sessions.db"
+        assert _resolve_agentsview_db() == tmp_path / "sessions.db"
 
     def test_agent_viewer_data_dir_env(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("AGENTSVIEW_DATA_DIR", raising=False)
         monkeypatch.setenv("AGENT_VIEWER_DATA_DIR", str(tmp_path))
-        assert resolve_agentsview_db() == tmp_path / "sessions.db"
+        assert _resolve_agentsview_db() == tmp_path / "sessions.db"
 
     def test_agentsview_takes_precedence_over_agent_viewer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -46,12 +47,12 @@ class TestResolveAgentsviewDb:
         older.mkdir()
         monkeypatch.setenv("AGENTSVIEW_DATA_DIR", str(newer))
         monkeypatch.setenv("AGENT_VIEWER_DATA_DIR", str(older))
-        assert resolve_agentsview_db() == newer / "sessions.db"
+        assert _resolve_agentsview_db() == newer / "sessions.db"
 
     def test_default_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("AGENTSVIEW_DATA_DIR", raising=False)
         monkeypatch.delenv("AGENT_VIEWER_DATA_DIR", raising=False)
-        result = resolve_agentsview_db()
+        result = _resolve_agentsview_db()
         assert result == Path.home() / ".agentsview" / "sessions.db"
 
     def test_explicit_overrides_env(
@@ -59,49 +60,12 @@ class TestResolveAgentsviewDb:
     ) -> None:
         monkeypatch.setenv("AGENTSVIEW_DATA_DIR", str(tmp_path / "env"))
         explicit = tmp_path / "explicit.db"
-        assert resolve_agentsview_db(explicit) == explicit
+        assert _resolve_agentsview_db(explicit) == explicit
 
 
 # ---------------------------------------------------------------------------
-# DB builder (reused from test_agentsview)
+# DB helpers
 # ---------------------------------------------------------------------------
-
-
-def _build_test_db(db_path: Path) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.executescript("""
-        CREATE TABLE sessions (
-            session_id TEXT PRIMARY KEY,
-            project TEXT,
-            model TEXT,
-            created_at TEXT,
-            deleted_at TEXT
-        );
-        CREATE TABLE messages (
-            message_id TEXT PRIMARY KEY,
-            session_id TEXT,
-            role TEXT,
-            content TEXT,
-            timestamp TEXT,
-            uuid TEXT,
-            parent_uuid TEXT,
-            is_sidechain INTEGER DEFAULT 0,
-            cwd TEXT,
-            version TEXT,
-            git_branch TEXT,
-            is_compact_boundary INTEGER DEFAULT 0,
-            is_system INTEGER DEFAULT 0
-        );
-        CREATE TABLE tool_calls (
-            tool_call_id TEXT PRIMARY KEY,
-            message_id TEXT,
-            tool_name TEXT,
-            input_json TEXT,
-            output_text TEXT,
-            is_error INTEGER DEFAULT 0
-        );
-    """)
-    conn.close()
 
 
 def _populate_db(db_path: Path) -> None:
@@ -125,6 +89,14 @@ def _populate_db(db_path: Path) -> None:
     conn.close()
 
 
+def _make_test_db(tmp_path: Path) -> Path:
+    """Build and populate a test DB, return its path."""
+    db_path = tmp_path / "sessions.db"
+    build_test_db(db_path)
+    _populate_db(db_path)
+    return db_path
+
+
 # ---------------------------------------------------------------------------
 # CLI: --source agentsview
 # ---------------------------------------------------------------------------
@@ -132,9 +104,7 @@ def _populate_db(db_path: Path) -> None:
 
 class TestAnalyzeAgentsview:
     def test_analyze_agentsview_source(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "sessions.db"
-        _build_test_db(db_path)
-        _populate_db(db_path)
+        db_path = _make_test_db(tmp_path)
         result = runner.invoke(
             app, ["analyze", "--source", "agentsview", "--agentsview-db", str(db_path)]
         )
@@ -142,9 +112,7 @@ class TestAnalyzeAgentsview:
         assert "PRISM Health Report" in result.output
 
     def test_analyze_agentsview_json(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "sessions.db"
-        _build_test_db(db_path)
-        _populate_db(db_path)
+        db_path = _make_test_db(tmp_path)
         result = runner.invoke(
             app,
             ["analyze", "--source", "agentsview", "--agentsview-db", str(db_path), "--json"],
@@ -163,9 +131,7 @@ class TestAnalyzeAgentsview:
     def test_analyze_agentsview_env_var(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        db_path = tmp_path / "sessions.db"
-        _build_test_db(db_path)
-        _populate_db(db_path)
+        _make_test_db(tmp_path)
         monkeypatch.setenv("AGENTSVIEW_DATA_DIR", str(tmp_path))
         result = runner.invoke(app, ["analyze", "--source", "agentsview"])
         assert result.exit_code == 0
@@ -173,9 +139,7 @@ class TestAnalyzeAgentsview:
 
 class TestAdviseAgentsview:
     def test_advise_agentsview_source(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "sessions.db"
-        _build_test_db(db_path)
-        _populate_db(db_path)
+        db_path = _make_test_db(tmp_path)
         result = runner.invoke(
             app, ["advise", "--source", "agentsview", "--agentsview-db", str(db_path)]
         )
@@ -184,15 +148,54 @@ class TestAdviseAgentsview:
 
 class TestDashboardAgentsview:
     def test_dashboard_agentsview_source(self, tmp_path: Path) -> None:
-        db_path = tmp_path / "sessions.db"
-        _build_test_db(db_path)
-        _populate_db(db_path)
+        db_path = _make_test_db(tmp_path)
         result = runner.invoke(
             app,
             ["dashboard", "--source", "agentsview", "--agentsview-db", str(db_path), "--no-open"],
         )
         assert result.exit_code == 0
         assert "Dashboard generated" in result.output
+
+
+# ---------------------------------------------------------------------------
+# CLI: validation errors
+# ---------------------------------------------------------------------------
+
+
+class TestSourceValidation:
+    def test_invalid_source_rejected(self) -> None:
+        result = runner.invoke(app, ["analyze", "--source", "badvalue"])
+        assert result.exit_code != 0
+
+    def test_project_with_agentsview_rejected(self, tmp_path: Path) -> None:
+        db_path = _make_test_db(tmp_path)
+        result = runner.invoke(
+            app,
+            ["analyze", "--source", "agentsview", "--agentsview-db", str(db_path),
+             "--project", "/some/path"],
+        )
+        assert result.exit_code != 0
+        assert "--project cannot be used" in result.output
+
+    def test_base_dir_with_agentsview_rejected(self, tmp_path: Path) -> None:
+        db_path = _make_test_db(tmp_path)
+        result = runner.invoke(
+            app,
+            ["analyze", "--source", "agentsview", "--agentsview-db", str(db_path),
+             "--base-dir", str(tmp_path)],
+        )
+        assert result.exit_code != 0
+        assert "--base-dir cannot be used" in result.output
+
+    def test_advise_project_with_agentsview_rejected(self, tmp_path: Path) -> None:
+        db_path = _make_test_db(tmp_path)
+        result = runner.invoke(
+            app,
+            ["advise", "--source", "agentsview", "--agentsview-db", str(db_path),
+             "--project", "/some/path"],
+        )
+        assert result.exit_code != 0
+        assert "--project cannot be used" in result.output
 
 
 # ---------------------------------------------------------------------------

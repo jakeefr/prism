@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import click
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -50,7 +51,7 @@ err_console = Console(stderr=True)
 # Data-source helpers
 # ---------------------------------------------------------------------------
 
-def resolve_agentsview_db(explicit: Path | None = None) -> Path:
+def _resolve_agentsview_db(explicit: Path | None = None) -> Path:
     """Resolve the agentsview SQLite DB path via the priority chain.
 
     1. Explicit path (--agentsview-db flag)
@@ -76,7 +77,7 @@ def _make_datasource(
     if source == "agentsview":
         from prism.agentsview import AgentsviewDataSource
 
-        db_path = resolve_agentsview_db(agentsview_db)
+        db_path = _resolve_agentsview_db(agentsview_db)
         if not db_path.exists():
             err_console.print(
                 f"[red]Agentsview database not found: {db_path}[/red]\n"
@@ -132,6 +133,7 @@ def analyze_cmd(
         "jsonl",
         "--source",
         "-s",
+        click_type=click.Choice(["jsonl", "agentsview"]),
         help="Data source: jsonl (default) or agentsview.",
     ),
     agentsview_db: Optional[Path] = typer.Option(
@@ -148,6 +150,12 @@ def analyze_cmd(
     ),
 ) -> None:
     """Print a health report for all projects (or one project)."""
+    if source == "agentsview" and project is not None:
+        err_console.print("[red]--project cannot be used with --source agentsview.[/red]")
+        raise typer.Exit(1)
+    if source == "agentsview" and base_dir is not None:
+        err_console.print("[red]--base-dir cannot be used with --source agentsview.[/red]")
+        raise typer.Exit(1)
     ds = _make_datasource(source, agentsview_db, base_dir)
     if source == "agentsview":
         projects = ds.discover_projects()
@@ -309,6 +317,7 @@ def advise_cmd(
         "jsonl",
         "--source",
         "-s",
+        click_type=click.Choice(["jsonl", "agentsview"]),
         help="Data source: jsonl (default) or agentsview.",
     ),
     agentsview_db: Optional[Path] = typer.Option(
@@ -327,6 +336,12 @@ def advise_cmd(
     """Print concrete CLAUDE.md recommendations as a colored diff."""
     from prism.advisor import apply_advice, format_advice_rich, generate_advice
 
+    if source == "agentsview" and project is not None:
+        err_console.print("[red]--project cannot be used with --source agentsview.[/red]")
+        raise typer.Exit(1)
+    if source == "agentsview" and base_dir is not None:
+        err_console.print("[red]--base-dir cannot be used with --source agentsview.[/red]")
+        raise typer.Exit(1)
     ds = _make_datasource(source, agentsview_db, base_dir)
     if source == "agentsview":
         projects = ds.discover_projects()
@@ -490,6 +505,7 @@ def dashboard_cmd(
         "jsonl",
         "--source",
         "-s",
+        click_type=click.Choice(["jsonl", "agentsview"]),
         help="Data source: jsonl (default) or agentsview.",
     ),
     agentsview_db: Optional[Path] = typer.Option(
@@ -508,6 +524,9 @@ def dashboard_cmd(
     """Generate the HTML dashboard and open it in your browser."""
     from prism.dashboard import generate_dashboard, get_dashboard_path, serve_dashboard
 
+    if source == "agentsview" and base_dir is not None:
+        err_console.print("[red]--base-dir cannot be used with --source agentsview.[/red]")
+        raise typer.Exit(1)
     ds = _make_datasource(source, agentsview_db, base_dir)
     if source == "agentsview":
         projects = ds.discover_projects()
