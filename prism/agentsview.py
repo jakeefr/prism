@@ -235,4 +235,25 @@ class AgentsviewDataSource:
         return results
 
     def find_claude_md(self, project: ProjectInfo) -> Path | None:
+        project_path = self._resolve_project_path(project.encoded_name)
+        if not project_path:
+            return None
+        # Try the project path itself first
+        candidate = Path(project_path) / "CLAUDE.md"
+        if candidate.exists():
+            return candidate
+        # Fall back to cwd from the most recent message
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT m.cwd FROM messages m"
+            " JOIN sessions s ON m.session_id = s.session_id"
+            " WHERE s.project = ? AND s.deleted_at IS NULL"
+            " AND m.cwd IS NOT NULL AND m.cwd != ''"
+            " ORDER BY m.timestamp DESC LIMIT 1",
+            (project_path,),
+        ).fetchone()
+        if row:
+            candidate = Path(row["cwd"]) / "CLAUDE.md"
+            if candidate.exists():
+                return candidate
         return None

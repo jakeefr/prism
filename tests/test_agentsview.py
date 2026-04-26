@@ -641,6 +641,79 @@ class TestToolCallEnrichment:
         assert result_blocks[0].tool_content == "file1.py\nfile2.py"
 
 
+class TestFindClaudeMd:
+    def test_found_in_project_path(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "CLAUDE.md").write_text("# Rules\n", encoding="utf-8")
+
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", str(workspace)),
+        )
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        projects = ds.discover_projects()
+        assert len(projects) == 1
+        result = ds.find_claude_md(projects[0])
+        assert result == workspace / "CLAUDE.md"
+
+    def test_found_via_cwd_fallback(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+        (workspace / "CLAUDE.md").write_text("# Rules\n", encoding="utf-8")
+
+        # Project path is different from cwd
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", str(tmp_path / "nonexistent")),
+        )
+        _insert_message(conn, "m1", "s1", "user", content="hi",
+                         cwd=str(workspace))
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        projects = ds.discover_projects()
+        result = ds.find_claude_md(projects[0])
+        assert result == workspace / "CLAUDE.md"
+
+    def test_returns_none_when_missing(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", str(tmp_path / "nonexistent")),
+        )
+        _insert_message(conn, "m1", "s1", "user", content="hi",
+                         cwd=str(tmp_path / "also-nonexistent"))
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        projects = ds.discover_projects()
+        result = ds.find_claude_md(projects[0])
+        assert result is None
+
+    def test_returns_none_for_unknown_project(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        ds = AgentsviewDataSource(db)
+        proj = ProjectInfo(
+            encoded_name="nonexistent", project_dir=Path("."), session_files=[],
+        )
+        assert ds.find_claude_md(proj) is None
+
+
 class TestAnalyzeProjectIntegration:
     def test_analyze_with_agentsview_datasource(self, tmp_path: Path):
         from prism.analyzer import ProjectHealthReport, analyze_project
