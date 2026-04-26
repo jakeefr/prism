@@ -9,7 +9,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from prism.datasource import SessionDataSource
 
 from prism.parser import (
     AssistantRecord,
@@ -19,8 +22,6 @@ from prism.parser import (
     SessionRecord,
     SystemRecord,
     UserRecord,
-    load_all_sessions,
-    parse_session_file,
 )
 
 
@@ -736,26 +737,25 @@ def analyze_project(
     project: ProjectInfo,
     claude_md_path: Path | None = None,
     max_sessions: int = 50,
+    datasource: SessionDataSource | None = None,
 ) -> ProjectHealthReport:
     """Run all five analysis dimensions on a project.
 
     Args:
         project: The project to analyze.
         claude_md_path: Optional override for CLAUDE.md location.
-            If None, attempts to find CLAUDE.md from the project's cwd.
+            If None, asks the datasource to find it.
         max_sessions: Maximum number of sessions to load (most recent first).
+        datasource: Backend to load sessions from. Defaults to JSONLDataSource.
     """
-    sessions = load_all_sessions(project)[:max_sessions]
+    if datasource is None:
+        from prism.datasource import JSONLDataSource
+        datasource = JSONLDataSource()
 
-    # Try to find CLAUDE.md if not provided
-    if claude_md_path is None and sessions:
-        for session in sessions:
-            if session.records:
-                cwd = Path(session.records[0].cwd)
-                candidate = cwd / "CLAUDE.md"
-                if candidate.exists():
-                    claude_md_path = candidate
-                    break
+    sessions = datasource.load_sessions(project)[:max_sessions]
+
+    if claude_md_path is None:
+        claude_md_path = datasource.find_claude_md(project)
 
     token_efficiency = analyze_token_efficiency(sessions, claude_md_path)
     tool_health = analyze_tool_health(sessions)

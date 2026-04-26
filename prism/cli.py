@@ -17,11 +17,11 @@ from rich.text import Text
 
 from prism import __version__
 from prism.analyzer import analyze_project
+from prism.datasource import JSONLDataSource
 from prism.parser import (
     CLAUDE_PROJECTS_DIR,
     ProjectInfo,
     discover_projects,
-    parse_session_file,
     project_path_to_encoded_name,
 )
 
@@ -271,7 +271,7 @@ def advise_cmd(
         raise typer.Exit(1)
 
     # Find CLAUDE.md
-    claude_md_path = _find_claude_md(proj)
+    claude_md_path = JSONLDataSource().find_claude_md(proj)
 
     advisor_report = generate_advice(report, claude_md_path)
     console.print(format_advice_rich(advisor_report), markup=True)
@@ -535,18 +535,6 @@ def _resolve_session_path(session: str) -> Path | None:
                 for jf in proj_dir.glob("*.jsonl"):
                     if jf.stem.startswith(session):
                         return jf
-    return None
-
-
-def _find_claude_md(project: ProjectInfo) -> Path | None:
-    """Try to find CLAUDE.md for a project by checking session cwds."""
-    for session_file in project.session_files[:3]:
-        result = parse_session_file(session_file)
-        if result.records:
-            cwd = Path(result.records[0].cwd)
-            candidate = cwd / "CLAUDE.md"
-            if candidate.exists():
-                return candidate
     return None
 
 
