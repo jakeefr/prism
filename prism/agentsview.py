@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
@@ -60,6 +61,67 @@ def _row_to_record(row: sqlite3.Row) -> SessionRecord | None:
         return SystemRecord(**kwargs, subtype=None, summary=content_text[:200])
 
     return None
+
+
+def _enrich_with_tool_calls(
+    records: list[SessionRecord],
+    message_ids: list[str],
+    conn: sqlite3.Connection,
+) -> None:
+    """Inject tool_use and tool_result ContentBlocks from the tool_calls table."""
+    if not message_ids:
+        return
+    placeholders = ",".join("?" * len(message_ids))
+    tc_rows = conn.execute(
+        f"SELECT * FROM tool_calls WHERE message_id IN ({placeholders})"
+        " ORDER BY rowid",
+        message_ids,
+    ).fetchall()
+    if not tc_rows:
+        return
+
+    tc_by_msg: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in tc_rows:
+        tc_by_msg[row["message_id"]].append(row)
+
+    # Build a uuid→record index for fast lookup
+    record_by_uuid: dict[str, SessionRecord] = {}
+    for rec in records:
+        if rec.uuid:
+            record_by_uuid[rec.uuid] = rec
+
+    # Walk records: for each assistant, add tool_use blocks and queue tool_results
+    # for the next user record
+    pending_results: list[ContentBlock] = []
+    for rec in records:
+        if isinstance(rec, UserRecord) and pending_results:
+            rec.content.extend(pending_results)
+            pending_results = []
+        if isinstance(rec, AssistantRecord) and rec.uuid in tc_by_msg:
+            for tc in tc_by_msg[rec.uuid]:
+                tool_input = _parse_input_json(tc["input_json"])
+                rec.content.append(ContentBlock(
+                    type="tool_use",
+                    tool_id=tc["tool_call_id"],
+                    tool_name=tc["tool_name"],
+                    tool_input=tool_input,
+                ))
+                if tc["output_text"] is not None:
+                    pending_results.append(ContentBlock(
+                        type="tool_result",
+                        tool_use_id=tc["tool_call_id"],
+                        tool_content=tc["output_text"],
+                    ))
+
+
+def _parse_input_json(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    try:
+        result = json.loads(raw)
+        return result if isinstance(result, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 class AgentsviewDataSource:
@@ -145,8 +207,10 @@ class AgentsviewDataSource:
         ).fetchall()
 
         grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
+        msg_ids_by_session: dict[str, list[str]] = defaultdict(list)
         for row in msg_rows:
             grouped[row["session_id"]].append(row)
+            msg_ids_by_session[row["session_id"]].append(row["message_id"])
 
         # Order sessions by latest message timestamp (most recent first)
         def _latest_ts(sid: str) -> str:
@@ -157,6 +221,7 @@ class AgentsviewDataSource:
         for sid in sorted(session_ids, key=_latest_ts, reverse=True):
             records = [_row_to_record(r) for r in grouped.get(sid, [])]
             records = [r for r in records if r is not None]
+            _enrich_with_tool_calls(records, msg_ids_by_session.get(sid, []), conn)
             results.append(ParseResult(
                 path=Path(f"agentsview://{sid}.jsonl"),
                 records=records,

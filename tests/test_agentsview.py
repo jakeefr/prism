@@ -454,6 +454,126 @@ class TestResolveProjectPath:
         assert results_last[0].records[0].session_id == "s2"
 
 
+class TestToolCallEnrichment:
+    def _make_project(self, project_path: str = "/home/user/proj") -> ProjectInfo:
+        encoded = project_path_to_encoded_name(project_path)
+        return ProjectInfo(
+            encoded_name=encoded,
+            project_dir=Path(f"agentsview://{encoded}"),
+            session_files=[],
+        )
+
+    def test_tool_use_on_assistant(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", "/home/user/proj"),
+        )
+        _insert_message(conn, "m1", "s1", "assistant", content="Let me read that",
+                         uuid="m1")
+        conn.execute(
+            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
+            " VALUES (?, ?, ?, ?)",
+            ("tc1", "m1", "Read", '{"file_path": "/tmp/foo.py"}'),
+        )
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        rec = results[0].records[0]
+        assert isinstance(rec, AssistantRecord)
+        tool_blocks = [b for b in rec.content if b.type == "tool_use"]
+        assert len(tool_blocks) == 1
+        assert tool_blocks[0].tool_name == "Read"
+        assert tool_blocks[0].tool_input == {"file_path": "/tmp/foo.py"}
+
+    def test_tool_result_on_next_user(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", "/home/user/proj"),
+        )
+        _insert_message(conn, "m1", "s1", "assistant", content="Reading",
+                         uuid="m1", timestamp="2026-04-20T10:00:00Z")
+        _insert_message(conn, "m2", "s1", "user", content="ok",
+                         uuid="m2", timestamp="2026-04-20T10:01:00Z")
+        conn.execute(
+            "INSERT INTO tool_calls"
+            " (tool_call_id, message_id, tool_name, input_json, output_text)"
+            " VALUES (?, ?, ?, ?, ?)",
+            ("tc1", "m1", "Read", '{"file_path": "/tmp/foo.py"}', "file contents here"),
+        )
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        user_rec = results[0].records[1]
+        assert isinstance(user_rec, UserRecord)
+        result_blocks = [b for b in user_rec.content if b.type == "tool_result"]
+        assert len(result_blocks) == 1
+        assert result_blocks[0].tool_content == "file contents here"
+        assert result_blocks[0].tool_use_id == "tc1"
+
+    def test_malformed_input_json(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", "/home/user/proj"),
+        )
+        _insert_message(conn, "m1", "s1", "assistant", content="",
+                         uuid="m1")
+        conn.execute(
+            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
+            " VALUES (?, ?, ?, ?)",
+            ("tc1", "m1", "Bash", "not valid json"),
+        )
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        rec = results[0].records[0]
+        tool_blocks = [b for b in rec.content if b.type == "tool_use"]
+        assert tool_blocks[0].tool_input == {}
+
+    def test_multiple_tool_calls_per_message(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
+            ("s1", "/home/user/proj"),
+        )
+        _insert_message(conn, "m1", "s1", "assistant", content="",
+                         uuid="m1")
+        conn.execute(
+            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
+            " VALUES (?, ?, ?, ?)",
+            ("tc1", "m1", "Read", '{"file_path": "a.py"}'),
+        )
+        conn.execute(
+            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
+            " VALUES (?, ?, ?, ?)",
+            ("tc2", "m1", "Read", '{"file_path": "b.py"}'),
+        )
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        rec = results[0].records[0]
+        tool_blocks = [b for b in rec.content if b.type == "tool_use"]
+        assert len(tool_blocks) == 2
+
+
 class TestAnalyzeProjectIntegration:
     def test_analyze_with_agentsview_datasource(self, tmp_path: Path):
         from prism.analyzer import ProjectHealthReport, analyze_project
