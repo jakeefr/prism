@@ -264,14 +264,13 @@ def advise_cmd(
 
     # Use the first (most recent) project if no --project given
     proj = projects[0]
+    ds = JSONLDataSource()
+    claude_md_path = ds.find_claude_md(proj)
     try:
-        report = analyze_project(proj)
+        report = analyze_project(proj, claude_md_path=claude_md_path, datasource=ds)
     except Exception as exc:
         err_console.print(f"[red]Error analyzing project: {exc}[/red]")
         raise typer.Exit(1)
-
-    # Find CLAUDE.md
-    claude_md_path = JSONLDataSource().find_claude_md(proj)
 
     advisor_report = generate_advice(report, claude_md_path)
     console.print(format_advice_rich(advisor_report), markup=True)

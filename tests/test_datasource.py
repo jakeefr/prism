@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from prism.analyzer import ProjectHealthReport, analyze_project
 from prism.datasource import JSONLDataSource, SessionDataSource
 from prism.parser import ParseResult, ProjectInfo
 
@@ -126,3 +127,14 @@ class TestJSONLDataSource:
         )
         ds = JSONLDataSource()
         assert ds.find_claude_md(proj) is None
+
+    def test_analyze_project_with_datasource(self):
+        proj = ProjectInfo(
+            encoded_name="test",
+            project_dir=FIXTURES,
+            session_files=[FIXTURES / "sample_session.jsonl"],
+        )
+        ds = JSONLDataSource()
+        report = analyze_project(proj, datasource=ds)
+        assert isinstance(report, ProjectHealthReport)
+        assert report.session_count >= 1
