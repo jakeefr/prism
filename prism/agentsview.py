@@ -108,7 +108,8 @@ def _enrich_with_tool_calls(
                         tool_use_id=tc["tool_call_id"],
                         tool_content=tc["output_text"],
                     ))
-    # Flush any trailing tool results (session ended with assistant tool call)
+    # Flush trailing tool results to the last UserRecord.
+    # Dropped if no UserRecord exists (assistant-only session).
     if pending_results:
         for rec in reversed(records):
             if isinstance(rec, UserRecord):
