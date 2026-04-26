@@ -1,49 +1,7 @@
 """AgentsviewDataSource — reads session data from the agentsview SQLite DB.
 
-Verified agentsview schema (github.com/wesm/agentsview internal/db/schema.sql):
-
-  sessions:
-    id TEXT PRIMARY KEY, project TEXT NOT NULL, machine TEXT, agent TEXT,
-    first_message TEXT, display_name TEXT, started_at TEXT, ended_at TEXT,
-    message_count INTEGER, user_message_count INTEGER,
-    file_path TEXT, file_size INTEGER, file_mtime INTEGER,
-    file_inode INTEGER, file_device INTEGER, file_hash TEXT,
-    local_modified_at TEXT, parent_session_id TEXT, relationship_type TEXT,
-    total_output_tokens INTEGER, peak_context_tokens INTEGER,
-    has_total_output_tokens INTEGER, has_peak_context_tokens INTEGER,
-    is_automated INTEGER, tool_failure_signal_count INTEGER,
-    tool_retry_count INTEGER, edit_churn_count INTEGER,
-    consecutive_failure_max INTEGER, outcome TEXT, outcome_confidence TEXT,
-    ended_with_role TEXT, final_failure_streak INTEGER,
-    signals_pending_since TEXT, compaction_count INTEGER,
-    mid_task_compaction_count INTEGER, context_pressure_max REAL,
-    health_score INTEGER, health_grade TEXT,
-    has_tool_calls INTEGER, has_context_data INTEGER, data_version INTEGER,
-    cwd TEXT, git_branch TEXT, source_session_id TEXT, source_version TEXT,
-    parser_malformed_lines INTEGER, is_truncated INTEGER,
-    deleted_at TEXT, created_at TEXT
-
-  messages:
-    id INTEGER PRIMARY KEY, session_id TEXT REFERENCES sessions(id),
-    ordinal INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
-    thinking_text TEXT, timestamp TEXT, has_thinking INTEGER,
-    has_tool_use INTEGER, content_length INTEGER, is_system INTEGER,
-    model TEXT, token_usage TEXT,
-    context_tokens INTEGER, output_tokens INTEGER,
-    has_context_tokens INTEGER, has_output_tokens INTEGER,
-    claude_message_id TEXT, claude_request_id TEXT,
-    source_type TEXT, source_subtype TEXT,
-    source_uuid TEXT, source_parent_uuid TEXT,
-    is_sidechain INTEGER, is_compact_boundary INTEGER,
-    UNIQUE(session_id, ordinal)
-
-  tool_calls:
-    id INTEGER PRIMARY KEY, message_id INTEGER REFERENCES messages(id),
-    session_id TEXT REFERENCES sessions(id),
-    tool_name TEXT NOT NULL, category TEXT NOT NULL,
-    tool_use_id TEXT, input_json TEXT, skill_name TEXT,
-    result_content_length INTEGER, result_content TEXT,
-    subagent_session_id TEXT
+Schema reference: github.com/wesm/agentsview internal/db/schema.sql
+Local test fixture: tests/conftest.py build_test_db()
 """
 
 from __future__ import annotations
@@ -277,7 +235,7 @@ class AgentsviewDataSource:
             sinfo = session_info[sid]
             s_cwd = sinfo["cwd"] or ""
             s_version = sinfo["source_version"] or ""
-            s_branch = sinfo["git_branch"] or ""
+            s_branch = sinfo["git_branch"]
             pairs = [
                 (row["id"], _row_to_record(row, s_cwd, s_version, s_branch))
                 for row in grouped.get(sid, [])

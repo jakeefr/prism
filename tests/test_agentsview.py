@@ -16,14 +16,6 @@ from prism.parser import (
 )
 from tests.conftest import build_test_db as _build_test_db
 
-_ordinal_counter = 0
-
-
-def _next_ordinal() -> int:
-    global _ordinal_counter
-    _ordinal_counter += 1
-    return _ordinal_counter
-
 
 def _insert_session(
     conn: sqlite3.Connection,
@@ -60,7 +52,12 @@ def _insert_message(
         "is_system": 0,
     }
     defaults.update(kwargs)
-    ordinal = defaults.pop("ordinal", _next_ordinal())
+    ordinal = defaults.pop("ordinal", None)
+    if ordinal is None:
+        ordinal = conn.execute(
+            "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM messages WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()[0]
     conn.execute(
         "INSERT INTO messages"
         " (session_id, ordinal, role, content, timestamp, source_uuid,"
