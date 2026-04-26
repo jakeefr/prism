@@ -415,18 +415,19 @@ class TestResolveProjectPath:
         assert len(results) == 1
 
 
-    def test_encoding_collision_both_discovered(self, tmp_path: Path):
-        """When two DB paths encode to the same name, both appear in discovery.
+    def test_encoding_collision_last_wins(self, tmp_path: Path):
+        """When two DB paths encode to the same name, the last one wins.
 
-        This is a known limitation of project_path_to_encoded_name being
-        non-injective. Both projects get the same encoded_name, but each
-        has a correct _project_paths mapping so load_sessions still works
-        for whichever one the caller picks (the last-discovered path wins
-        the cache entry).
+        Known limitation: project_path_to_encoded_name is non-injective.
+        Both projects get the same encoded_name. The internal cache stores
+        only the last-seen path, so load_sessions for either ProjectInfo
+        returns sessions from the last-discovered project. The first
+        project's sessions are unreachable via encoded_name lookup.
         """
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
+        # /home/my-project and /home/my/project both encode to -home-my-project
         conn.execute(
             "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
             ("s1", "/home/my-project"),
@@ -442,12 +443,15 @@ class TestResolveProjectPath:
 
         ds = AgentsviewDataSource(db)
         projects = ds.discover_projects()
-        # Two DB rows → two ProjectInfo objects (same encoded_name)
         assert len(projects) == 2
         assert projects[0].encoded_name == projects[1].encoded_name
-        # load_sessions works for the last-cached path
-        results = ds.load_sessions(projects[-1])
-        assert len(results) == 1
+
+        # Both resolve to the last-cached path (/home/my/project = s2)
+        results_first = ds.load_sessions(projects[0])
+        results_last = ds.load_sessions(projects[-1])
+        assert results_first == results_last
+        assert len(results_last) == 1
+        assert results_last[0].records[0].session_id == "s2"
 
 
 class TestAnalyzeProjectIntegration:
