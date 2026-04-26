@@ -1,4 +1,50 @@
-"""AgentsviewDataSource — reads session data from the agentsview SQLite DB."""
+"""AgentsviewDataSource — reads session data from the agentsview SQLite DB.
+
+Verified agentsview schema (github.com/wesm/agentsview internal/db/schema.sql):
+
+  sessions:
+    id TEXT PRIMARY KEY, project TEXT NOT NULL, machine TEXT, agent TEXT,
+    first_message TEXT, display_name TEXT, started_at TEXT, ended_at TEXT,
+    message_count INTEGER, user_message_count INTEGER,
+    file_path TEXT, file_size INTEGER, file_mtime INTEGER,
+    file_inode INTEGER, file_device INTEGER, file_hash TEXT,
+    local_modified_at TEXT, parent_session_id TEXT, relationship_type TEXT,
+    total_output_tokens INTEGER, peak_context_tokens INTEGER,
+    has_total_output_tokens INTEGER, has_peak_context_tokens INTEGER,
+    is_automated INTEGER, tool_failure_signal_count INTEGER,
+    tool_retry_count INTEGER, edit_churn_count INTEGER,
+    consecutive_failure_max INTEGER, outcome TEXT, outcome_confidence TEXT,
+    ended_with_role TEXT, final_failure_streak INTEGER,
+    signals_pending_since TEXT, compaction_count INTEGER,
+    mid_task_compaction_count INTEGER, context_pressure_max REAL,
+    health_score INTEGER, health_grade TEXT,
+    has_tool_calls INTEGER, has_context_data INTEGER, data_version INTEGER,
+    cwd TEXT, git_branch TEXT, source_session_id TEXT, source_version TEXT,
+    parser_malformed_lines INTEGER, is_truncated INTEGER,
+    deleted_at TEXT, created_at TEXT
+
+  messages:
+    id INTEGER PRIMARY KEY, session_id TEXT REFERENCES sessions(id),
+    ordinal INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
+    thinking_text TEXT, timestamp TEXT, has_thinking INTEGER,
+    has_tool_use INTEGER, content_length INTEGER, is_system INTEGER,
+    model TEXT, token_usage TEXT,
+    context_tokens INTEGER, output_tokens INTEGER,
+    has_context_tokens INTEGER, has_output_tokens INTEGER,
+    claude_message_id TEXT, claude_request_id TEXT,
+    source_type TEXT, source_subtype TEXT,
+    source_uuid TEXT, source_parent_uuid TEXT,
+    is_sidechain INTEGER, is_compact_boundary INTEGER,
+    UNIQUE(session_id, ordinal)
+
+  tool_calls:
+    id INTEGER PRIMARY KEY, message_id INTEGER REFERENCES messages(id),
+    session_id TEXT REFERENCES sessions(id),
+    tool_name TEXT NOT NULL, category TEXT NOT NULL,
+    tool_use_id TEXT, input_json TEXT, skill_name TEXT,
+    result_content_length INTEGER, result_content TEXT,
+    subagent_session_id TEXT
+"""
 
 from __future__ import annotations
 
@@ -20,25 +66,31 @@ from prism.parser import (
 )
 
 
-def _envelope_kwargs(row: sqlite3.Row) -> dict:
-    """Extract Envelope constructor kwargs from a messages row."""
+def _envelope_kwargs(row: sqlite3.Row, session_cwd: str, session_version: str,
+                     session_git_branch: str) -> dict:
+    """Extract Envelope constructor kwargs from a messages row.
+
+    cwd, version, and git_branch live on the sessions table in the real schema,
+    so they must be passed in from the caller.
+    """
     return {
-        "uuid": row["uuid"] or "",
-        "parent_uuid": row["parent_uuid"],
+        "uuid": row["source_uuid"] or "",
+        "parent_uuid": row["source_parent_uuid"] or None,
         "is_sidechain": bool(row["is_sidechain"]),
         "session_id": row["session_id"],
         "timestamp": row["timestamp"] or "",
-        "version": row["version"] or "",
-        "cwd": row["cwd"] or "",
-        "git_branch": row["git_branch"],
+        "version": session_version,
+        "cwd": session_cwd,
+        "git_branch": session_git_branch or None,
         "type": row["role"] or "",
         "raw": {},
     }
 
 
-def _row_to_record(row: sqlite3.Row) -> SessionRecord | None:
+def _row_to_record(row: sqlite3.Row, session_cwd: str, session_version: str,
+                   session_git_branch: str) -> SessionRecord | None:
     """Convert a messages table row to a typed SessionRecord."""
-    kwargs = _envelope_kwargs(row)
+    kwargs = _envelope_kwargs(row, session_cwd, session_version, session_git_branch)
     content_text = row["content"] or ""
 
     if row["is_compact_boundary"]:
@@ -65,12 +117,13 @@ def _row_to_record(row: sqlite3.Row) -> SessionRecord | None:
 
 def _enrich_with_tool_calls(
     records: list[SessionRecord],
-    record_msg_ids: list[str],
+    record_msg_ids: list[int],
     conn: sqlite3.Connection,
 ) -> None:
     """Inject tool_use and tool_result ContentBlocks from the tool_calls table.
 
     record_msg_ids must be parallel to records (same length, same order).
+    IDs are integers matching messages.id in the real schema.
     """
     if not record_msg_ids:
         return
@@ -78,13 +131,13 @@ def _enrich_with_tool_calls(
     placeholders = ",".join("?" * len(unique_ids))
     tc_rows = conn.execute(
         f"SELECT * FROM tool_calls WHERE message_id IN ({placeholders})"
-        " ORDER BY rowid",
+        " ORDER BY id",
         unique_ids,
     ).fetchall()
     if not tc_rows:
         return
 
-    tc_by_msg: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    tc_by_msg: dict[int, list[sqlite3.Row]] = defaultdict(list)
     for row in tc_rows:
         tc_by_msg[row["message_id"]].append(row)
 
@@ -98,15 +151,15 @@ def _enrich_with_tool_calls(
                 tool_input = _parse_input_json(tc["input_json"])
                 rec.content.append(ContentBlock(
                     type="tool_use",
-                    tool_id=tc["tool_call_id"],
+                    tool_id=tc["tool_use_id"],
                     tool_name=tc["tool_name"],
                     tool_input=tool_input,
                 ))
-                if tc["output_text"] is not None:
+                if tc["result_content"] is not None:
                     pending_results.append(ContentBlock(
                         type="tool_result",
-                        tool_use_id=tc["tool_call_id"],
-                        tool_content=tc["output_text"],
+                        tool_use_id=tc["tool_use_id"],
+                        tool_content=tc["result_content"],
                     ))
     # Flush trailing tool results to the last UserRecord.
     # Dropped if no UserRecord exists (assistant-only session).
@@ -156,7 +209,7 @@ class AgentsviewDataSource:
         conn = self._connect()
         rows = conn.execute(
             "SELECT DISTINCT project FROM sessions"
-            " WHERE deleted_at IS NULL AND project IS NOT NULL"
+            " WHERE deleted_at IS NULL AND project IS NOT NULL AND project != ''"
             " ORDER BY project"
         ).fetchall()
         projects: list[ProjectInfo] = []
@@ -194,18 +247,19 @@ class AgentsviewDataSource:
             return []
         conn = self._connect()
         session_rows = conn.execute(
-            "SELECT session_id FROM sessions"
+            "SELECT id, cwd, git_branch, source_version FROM sessions"
             " WHERE project = ? AND deleted_at IS NULL",
             (project_path,),
         ).fetchall()
         if not session_rows:
             return []
 
-        session_ids = [r["session_id"] for r in session_rows]
+        session_info: dict[str, sqlite3.Row] = {r["id"]: r for r in session_rows}
+        session_ids = list(session_info.keys())
         placeholders = ",".join("?" * len(session_ids))
         msg_rows = conn.execute(
             f"SELECT * FROM messages WHERE session_id IN ({placeholders})"
-            " ORDER BY timestamp",
+            " ORDER BY session_id, ordinal",
             session_ids,
         ).fetchall()
 
@@ -220,11 +274,14 @@ class AgentsviewDataSource:
 
         results: list[ParseResult] = []
         for sid in sorted(session_ids, key=_latest_ts, reverse=True):
+            sinfo = session_info[sid]
+            s_cwd = sinfo["cwd"] or ""
+            s_version = sinfo["source_version"] or ""
+            s_branch = sinfo["git_branch"] or ""
             pairs = [
-                (row["message_id"], _row_to_record(row))
+                (row["id"], _row_to_record(row, s_cwd, s_version, s_branch))
                 for row in grouped.get(sid, [])
             ]
-            # Filter out None records, keeping message_ids parallel
             msg_ids = [mid for mid, rec in pairs if rec is not None]
             records = [rec for _, rec in pairs if rec is not None]
             _enrich_with_tool_calls(records, msg_ids, conn)
@@ -242,14 +299,13 @@ class AgentsviewDataSource:
         candidate = Path(project_path) / "CLAUDE.md"
         if candidate.exists():
             return candidate
-        # Fall back to cwd from the most recent message
+        # cwd lives on sessions, not messages — get the most recent session's cwd
         conn = self._connect()
         row = conn.execute(
-            "SELECT m.cwd FROM messages m"
-            " JOIN sessions s ON m.session_id = s.session_id"
-            " WHERE s.project = ? AND s.deleted_at IS NULL"
-            " AND m.cwd IS NOT NULL AND m.cwd != ''"
-            " ORDER BY m.timestamp DESC LIMIT 1",
+            "SELECT cwd FROM sessions"
+            " WHERE project = ? AND deleted_at IS NULL"
+            " AND cwd IS NOT NULL AND cwd != ''"
+            " ORDER BY created_at DESC LIMIT 1",
             (project_path,),
         ).fetchone()
         if row:

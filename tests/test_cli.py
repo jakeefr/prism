@@ -72,18 +72,23 @@ def _populate_db(db_path: Path) -> None:
     """Insert a minimal project with one session and a user+assistant exchange."""
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?)",
-        ("sess-1", "/home/user/proj", "claude-4", "2026-04-20T10:00:00Z", None),
+        "INSERT INTO sessions (id, project, cwd, git_branch, source_version)"
+        " VALUES (?, ?, ?, ?, ?)",
+        ("sess-1", "/home/user/proj", "/home/user/proj", "main", "2.1.98"),
     )
     conn.execute(
-        "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("m1", "sess-1", "user", "hello", "2026-04-20T10:00:00Z",
-         "u1", None, 0, "/home/user/proj", "2.1.98", "main", 0, 0),
+        "INSERT INTO messages (session_id, ordinal, role, content, timestamp,"
+        " source_uuid, source_parent_uuid, is_sidechain, is_compact_boundary, is_system)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("sess-1", 1, "user", "hello", "2026-04-20T10:00:00Z",
+         "u1", "", 0, 0, 0),
     )
     conn.execute(
-        "INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("m2", "sess-1", "assistant", "hi there", "2026-04-20T10:00:01Z",
-         "u2", "u1", 0, "/home/user/proj", "2.1.98", "main", 0, 0),
+        "INSERT INTO messages (session_id, ordinal, role, content, timestamp,"
+        " source_uuid, source_parent_uuid, is_sidechain, is_compact_boundary, is_system)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("sess-1", 2, "assistant", "hi there", "2026-04-20T10:00:01Z",
+         "u2", "u1", 0, 0, 0),
     )
     conn.commit()
     conn.close()

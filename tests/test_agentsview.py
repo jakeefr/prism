@@ -16,42 +16,64 @@ from prism.parser import (
 )
 from tests.conftest import build_test_db as _build_test_db
 
+_ordinal_counter = 0
+
+
+def _next_ordinal() -> int:
+    global _ordinal_counter
+    _ordinal_counter += 1
+    return _ordinal_counter
+
+
+def _insert_session(
+    conn: sqlite3.Connection,
+    session_id: str,
+    project: str,
+    *,
+    cwd: str = "/home/user/proj",
+    git_branch: str = "main",
+    source_version: str = "2.1.98",
+    deleted_at: str | None = None,
+) -> None:
+    """Insert a session row with sensible defaults."""
+    conn.execute(
+        "INSERT INTO sessions (id, project, cwd, git_branch, source_version, deleted_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (session_id, project, cwd, git_branch, source_version, deleted_at),
+    )
+
 
 def _insert_message(
     conn: sqlite3.Connection,
-    message_id: str,
     session_id: str,
     role: str,
     content: str = "",
     timestamp: str = "2026-04-20T10:00:00Z",
-    uuid: str = "",
-    cwd: str = "/home/user/proj",
+    source_uuid: str = "",
     **kwargs: object,
-) -> None:
-    """Insert a message row with sensible defaults."""
+) -> int:
+    """Insert a message row with sensible defaults. Returns the message id."""
     defaults = {
-        "parent_uuid": None,
+        "source_parent_uuid": "",
         "is_sidechain": 0,
-        "version": "2.1.98",
-        "git_branch": "main",
         "is_compact_boundary": 0,
         "is_system": 0,
     }
     defaults.update(kwargs)
+    ordinal = defaults.pop("ordinal", _next_ordinal())
     conn.execute(
         "INSERT INTO messages"
-        " (message_id, session_id, role, content, timestamp, uuid, cwd,"
-        "  parent_uuid, is_sidechain, version, git_branch,"
-        "  is_compact_boundary, is_system)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " (session_id, ordinal, role, content, timestamp, source_uuid,"
+        "  source_parent_uuid, is_sidechain, is_compact_boundary, is_system)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
-            message_id, session_id, role, content, timestamp,
-            uuid or message_id, cwd,
-            defaults["parent_uuid"], defaults["is_sidechain"],
-            defaults["version"], defaults["git_branch"],
+            session_id, ordinal, role, content, timestamp,
+            source_uuid,
+            defaults["source_parent_uuid"], defaults["is_sidechain"],
             defaults["is_compact_boundary"], defaults["is_system"],
         ),
     )
+    return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 
 class TestAgentsviewDataSourceProtocol:
@@ -72,10 +94,7 @@ class TestDiscoverProjects:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
+        _insert_session(conn, "s1", "/home/user/proj")
         conn.commit()
         conn.close()
 
@@ -90,10 +109,8 @@ class TestDiscoverProjects:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project, deleted_at) VALUES (?, ?, ?)",
-            ("s1", "/home/user/proj", "2026-04-20T10:00:00Z"),
-        )
+        _insert_session(conn, "s1", "/home/user/proj",
+                        deleted_at="2026-04-20T10:00:00Z")
         conn.commit()
         conn.close()
 
@@ -104,10 +121,8 @@ class TestDiscoverProjects:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.executemany(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            [("s1", "/home/user/proj"), ("s2", "/home/user/proj")],
-        )
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_session(conn, "s2", "/home/user/proj")
         conn.commit()
         conn.close()
 
@@ -119,10 +134,8 @@ class TestDiscoverProjects:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.executemany(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            [("s1", "/home/user/alpha"), ("s2", "/home/user/beta")],
-        )
+        _insert_session(conn, "s1", "/home/user/alpha")
+        _insert_session(conn, "s2", "/home/user/beta")
         conn.commit()
         conn.close()
 
@@ -133,13 +146,14 @@ class TestDiscoverProjects:
         assert project_path_to_encoded_name("/home/user/alpha") in names
         assert project_path_to_encoded_name("/home/user/beta") in names
 
-    def test_null_project_excluded(self, tmp_path: Path):
+    def test_empty_project_excluded(self, tmp_path: Path):
+        """Sessions with empty-string project are excluded."""
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
         conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", None),
+            "INSERT INTO sessions (id, project) VALUES (?, ?)",
+            ("s1", ""),
         )
         conn.commit()
         conn.close()
@@ -193,11 +207,8 @@ class TestLoadSessions:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="hello")
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", content="hello")
         conn.commit()
         conn.close()
 
@@ -213,11 +224,8 @@ class TestLoadSessions:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "assistant", content="I'll help")
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "assistant", content="I'll help")
         conn.commit()
         conn.close()
 
@@ -231,11 +239,8 @@ class TestLoadSessions:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "user", is_compact_boundary=1)
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", is_compact_boundary=1)
         conn.commit()
         conn.close()
 
@@ -249,11 +254,8 @@ class TestLoadSessions:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "user", is_compact_boundary=1)
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", is_compact_boundary=1)
         conn.commit()
         conn.close()
 
@@ -267,12 +269,9 @@ class TestLoadSessions:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
+        _insert_session(conn, "s1", "/home/user/proj")
         _insert_message(
-            conn, "m1", "s1", "user",
+            conn, "s1", "user",
             content="This session is being continued from a previous conversation",
             is_system=1,
         )
@@ -289,18 +288,12 @@ class TestLoadSessions:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s_old", "/home/user/proj"),
-        )
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s_new", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s_old", "user", content="old",
-                         timestamp="2026-04-19T10:00:00Z")
-        _insert_message(conn, "m2", "s_new", "user", content="new",
-                         timestamp="2026-04-20T10:00:00Z")
+        _insert_session(conn, "s_old", "/home/user/proj")
+        _insert_session(conn, "s_new", "/home/user/proj")
+        _insert_message(conn, "s_old", "user", content="old",
+                        timestamp="2026-04-19T10:00:00Z")
+        _insert_message(conn, "s_new", "user", content="new",
+                        timestamp="2026-04-20T10:00:00Z")
         conn.commit()
         conn.close()
 
@@ -314,14 +307,11 @@ class TestLoadSessions:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
+        _insert_session(conn, "s1", "/home/user/proj",
+                        cwd="/home/user/proj", git_branch="feat")
         _insert_message(
-            conn, "m1", "s1", "user", content="hi",
-            uuid="uuid-123", cwd="/home/user/proj",
-            is_sidechain=1, git_branch="feat",
+            conn, "s1", "user", content="hi",
+            source_uuid="uuid-123", is_sidechain=1,
         )
         conn.commit()
         conn.close()
@@ -334,6 +324,23 @@ class TestLoadSessions:
         assert rec.git_branch == "feat"
         assert rec.session_id == "s1"
 
+    def test_messages_ordered_by_ordinal(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", content="second", ordinal=2,
+                        timestamp="2026-04-20T10:00:00Z")
+        _insert_message(conn, "s1", "assistant", content="first", ordinal=1,
+                        timestamp="2026-04-20T10:00:01Z")
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        assert results[0].records[0].content[0].text == "first"
+        assert results[0].records[1].content[0].text == "second"
+
 
 class TestResolveProjectPath:
     def test_hyphenated_project_path(self, tmp_path: Path):
@@ -341,11 +348,8 @@ class TestResolveProjectPath:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/my-project"),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="hi")
+        _insert_session(conn, "s1", "/home/my-project")
+        _insert_message(conn, "s1", "user", content="hi")
         conn.commit()
         conn.close()
 
@@ -360,11 +364,8 @@ class TestResolveProjectPath:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="hi")
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", content="hi")
         conn.commit()
         conn.close()
 
@@ -377,30 +378,15 @@ class TestResolveProjectPath:
         results = ds.load_sessions(proj)
         assert len(results) == 1
 
-
     def test_encoding_collision_last_wins(self, tmp_path: Path):
-        """When two DB paths encode to the same name, the last one wins.
-
-        Known limitation: project_path_to_encoded_name is non-injective.
-        Both projects get the same encoded_name. The internal cache stores
-        only the last-seen path, so load_sessions for either ProjectInfo
-        returns sessions from the last-discovered project. The first
-        project's sessions are unreachable via encoded_name lookup.
-        """
+        """When two DB paths encode to the same name, the last one wins."""
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        # /home/my-project and /home/my/project both encode to -home-my-project
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/my-project"),
-        )
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s2", "/home/my/project"),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="a")
-        _insert_message(conn, "m2", "s2", "user", content="b")
+        _insert_session(conn, "s1", "/home/my-project")
+        _insert_session(conn, "s2", "/home/my/project")
+        _insert_message(conn, "s1", "user", content="a")
+        _insert_message(conn, "s2", "user", content="b")
         conn.commit()
         conn.close()
 
@@ -430,16 +416,12 @@ class TestToolCallEnrichment:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
+        _insert_session(conn, "s1", "/home/user/proj")
+        msg_id = _insert_message(conn, "s1", "assistant", content="Let me read that")
         conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "assistant", content="Let me read that",
-                         uuid="m1")
-        conn.execute(
-            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
-            " VALUES (?, ?, ?, ?)",
-            ("tc1", "m1", "Read", '{"file_path": "/tmp/foo.py"}'),
+            "INSERT INTO tool_calls (message_id, session_id, tool_name, tool_use_id, input_json)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (msg_id, "s1", "Read", "tc1", '{"file_path": "/tmp/foo.py"}'),
         )
         conn.commit()
         conn.close()
@@ -457,19 +439,16 @@ class TestToolCallEnrichment:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "assistant", content="Reading",
-                         uuid="m1", timestamp="2026-04-20T10:00:00Z")
-        _insert_message(conn, "m2", "s1", "user", content="ok",
-                         uuid="m2", timestamp="2026-04-20T10:01:00Z")
+        _insert_session(conn, "s1", "/home/user/proj")
+        msg_id = _insert_message(conn, "s1", "assistant", content="Reading",
+                                 timestamp="2026-04-20T10:00:00Z", ordinal=1)
+        _insert_message(conn, "s1", "user", content="ok",
+                        timestamp="2026-04-20T10:01:00Z", ordinal=2)
         conn.execute(
             "INSERT INTO tool_calls"
-            " (tool_call_id, message_id, tool_name, input_json, output_text)"
-            " VALUES (?, ?, ?, ?, ?)",
-            ("tc1", "m1", "Read", '{"file_path": "/tmp/foo.py"}', "file contents here"),
+            " (message_id, session_id, tool_name, tool_use_id, input_json, result_content)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (msg_id, "s1", "Read", "tc1", '{"file_path": "/tmp/foo.py"}', "file contents here"),
         )
         conn.commit()
         conn.close()
@@ -487,16 +466,12 @@ class TestToolCallEnrichment:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
+        _insert_session(conn, "s1", "/home/user/proj")
+        msg_id = _insert_message(conn, "s1", "assistant", content="")
         conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "assistant", content="",
-                         uuid="m1")
-        conn.execute(
-            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
-            " VALUES (?, ?, ?, ?)",
-            ("tc1", "m1", "Bash", "not valid json"),
+            "INSERT INTO tool_calls (message_id, session_id, tool_name, tool_use_id, input_json)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (msg_id, "s1", "Bash", "tc1", "not valid json"),
         )
         conn.commit()
         conn.close()
@@ -511,21 +486,17 @@ class TestToolCallEnrichment:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
+        _insert_session(conn, "s1", "/home/user/proj")
+        msg_id = _insert_message(conn, "s1", "assistant", content="")
         conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "assistant", content="",
-                         uuid="m1")
-        conn.execute(
-            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
-            " VALUES (?, ?, ?, ?)",
-            ("tc1", "m1", "Read", '{"file_path": "a.py"}'),
+            "INSERT INTO tool_calls (message_id, session_id, tool_name, tool_use_id, input_json)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (msg_id, "s1", "Read", "tc1", '{"file_path": "a.py"}'),
         )
         conn.execute(
-            "INSERT INTO tool_calls (tool_call_id, message_id, tool_name, input_json)"
-            " VALUES (?, ?, ?, ?)",
-            ("tc2", "m1", "Read", '{"file_path": "b.py"}'),
+            "INSERT INTO tool_calls (message_id, session_id, tool_name, tool_use_id, input_json)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (msg_id, "s1", "Read", "tc2", '{"file_path": "b.py"}'),
         )
         conn.commit()
         conn.close()
@@ -536,9 +507,8 @@ class TestToolCallEnrichment:
         tool_blocks = [b for b in rec.content if b.type == "tool_use"]
         assert len(tool_blocks) == 2
 
-
-    def test_uuid_differs_from_message_id(self, tmp_path: Path):
-        """Tool calls are keyed by message_id, not uuid.
+    def test_tool_calls_keyed_by_message_id(self, tmp_path: Path):
+        """Tool calls are keyed by messages.id (integer), not source_uuid.
 
         Also covers assistant-only session: tool_result blocks are dropped
         when there is no UserRecord to receive them.
@@ -546,17 +516,14 @@ class TestToolCallEnrichment:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "msg-001", "s1", "assistant", content="",
-                         uuid="uuid-different")
+        _insert_session(conn, "s1", "/home/user/proj")
+        msg_id = _insert_message(conn, "s1", "assistant", content="",
+                                 source_uuid="uuid-different")
         conn.execute(
             "INSERT INTO tool_calls"
-            " (tool_call_id, message_id, tool_name, input_json, output_text)"
-            " VALUES (?, ?, ?, ?, ?)",
-            ("tc1", "msg-001", "Bash", '{"command": "ls"}', "some output"),
+            " (message_id, session_id, tool_name, tool_use_id, input_json, result_content)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (msg_id, "s1", "Bash", "tc1", '{"command": "ls"}', "some output"),
         )
         conn.commit()
         conn.close()
@@ -577,26 +544,23 @@ class TestToolCallEnrichment:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="do something",
-                         uuid="m1", timestamp="2026-04-20T10:00:00Z")
-        _insert_message(conn, "m2", "s1", "assistant", content="running",
-                         uuid="m2", timestamp="2026-04-20T10:01:00Z")
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", content="do something",
+                        timestamp="2026-04-20T10:00:00Z", ordinal=1)
+        msg_id = _insert_message(conn, "s1", "assistant", content="running",
+                                 timestamp="2026-04-20T10:01:00Z", ordinal=2)
         conn.execute(
             "INSERT INTO tool_calls"
-            " (tool_call_id, message_id, tool_name, input_json, output_text)"
-            " VALUES (?, ?, ?, ?, ?)",
-            ("tc1", "m2", "Bash", '{"command": "ls"}', "file1.py\nfile2.py"),
+            " (message_id, session_id, tool_name, tool_use_id, input_json, result_content)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (msg_id, "s1", "Bash", "tc1", '{"command": "ls"}', "file1.py\nfile2.py"),
         )
         conn.commit()
         conn.close()
 
         ds = AgentsviewDataSource(db)
         results = ds.load_sessions(self._make_project())
-        # The only user record (m1) should get the flushed tool results
+        # The only user record should get the flushed tool results
         user_rec = results[0].records[0]
         assert isinstance(user_rec, UserRecord)
         result_blocks = [b for b in user_rec.content if b.type == "tool_result"]
@@ -613,10 +577,7 @@ class TestFindClaudeMd:
 
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", str(workspace)),
-        )
+        _insert_session(conn, "s1", str(workspace))
         conn.commit()
         conn.close()
 
@@ -636,12 +597,9 @@ class TestFindClaudeMd:
         assert not (tmp_path / "nonexistent").exists()
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", str(tmp_path / "nonexistent")),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="hi",
-                         cwd=str(workspace))
+        # cwd lives on sessions in the real schema
+        _insert_session(conn, "s1", str(tmp_path / "nonexistent"),
+                        cwd=str(workspace))
         conn.commit()
         conn.close()
 
@@ -654,12 +612,8 @@ class TestFindClaudeMd:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", str(tmp_path / "nonexistent")),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="hi",
-                         cwd=str(tmp_path / "also-nonexistent"))
+        _insert_session(conn, "s1", str(tmp_path / "nonexistent"),
+                        cwd=str(tmp_path / "also-nonexistent"))
         conn.commit()
         conn.close()
 
@@ -685,15 +639,12 @@ class TestAnalyzeProjectIntegration:
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
-        conn.execute(
-            "INSERT INTO sessions (session_id, project) VALUES (?, ?)",
-            ("s1", "/home/user/proj"),
-        )
-        _insert_message(conn, "m1", "s1", "user", content="hello world")
-        _insert_message(conn, "m2", "s1", "assistant", content="I can help",
-                         timestamp="2026-04-20T10:01:00Z")
-        _insert_message(conn, "m3", "s1", "user", content="thanks",
-                         timestamp="2026-04-20T10:02:00Z")
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", content="hello world", ordinal=1)
+        _insert_message(conn, "s1", "assistant", content="I can help",
+                        timestamp="2026-04-20T10:01:00Z", ordinal=2)
+        _insert_message(conn, "s1", "user", content="thanks",
+                        timestamp="2026-04-20T10:02:00Z", ordinal=3)
         conn.commit()
         conn.close()
 
