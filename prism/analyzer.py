@@ -40,8 +40,8 @@ def estimate_record_tokens(record: SessionRecord) -> int:
     Uses actual API token counts when available (agentsview backend),
     falls back to chars/4 heuristic for JSONL-sourced records.
     """
-    if record.actual_tokens is not None:
-        return record.actual_tokens
+    if isinstance(record, AssistantRecord) and record.actual_tokens is not None:
+        return max(record.actual_tokens, 10)
     total = 0
     if isinstance(record, (UserRecord, AssistantRecord)):
         for block in record.content:

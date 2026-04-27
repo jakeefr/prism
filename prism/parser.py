@@ -34,7 +34,6 @@ class Envelope:
     git_branch: str | None
     type: str  # "user" | "assistant" | "system"
     raw: dict[str, Any] = field(repr=False)
-    actual_tokens: int | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -60,6 +59,7 @@ class UserRecord(Envelope):
 class AssistantRecord(Envelope):
     """An assistant-role message (text + tool_use blocks)."""
     content: list[ContentBlock] = field(default_factory=list)
+    actual_tokens: int | None = field(default=None, repr=False)
 
 
 @dataclass

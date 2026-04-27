@@ -387,7 +387,7 @@ class TestActualTokens:
         assert isinstance(rec, AssistantRecord)
         assert rec.actual_tokens is None
 
-    def test_user_record_never_gets_actual_tokens(self, tmp_path: Path):
+    def test_user_record_has_no_actual_tokens(self, tmp_path: Path):
         db = tmp_path / "test.db"
         _build_test_db(db)
         conn = sqlite3.connect(db)
@@ -400,7 +400,7 @@ class TestActualTokens:
         results = ds.load_sessions(self._make_project())
         rec = results[0].records[0]
         assert isinstance(rec, UserRecord)
-        assert rec.actual_tokens is None
+        assert not hasattr(rec, "actual_tokens")
 
     def test_estimate_record_tokens_uses_actual(self):
         from prism.analyzer import estimate_record_tokens
@@ -413,6 +413,18 @@ class TestActualTokens:
             content=[],
         )
         assert estimate_record_tokens(rec) == 250
+
+    def test_estimate_record_tokens_applies_floor(self):
+        from prism.analyzer import estimate_record_tokens
+
+        rec = AssistantRecord(
+            uuid="u1", parent_uuid=None, is_sidechain=False,
+            session_id="s1", timestamp="", version="", cwd="",
+            git_branch=None, type="assistant", raw={},
+            actual_tokens=0,
+            content=[],
+        )
+        assert estimate_record_tokens(rec) == 10
 
     def test_estimate_record_tokens_falls_back_to_heuristic(self):
         from prism.analyzer import estimate_record_tokens
