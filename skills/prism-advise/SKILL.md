@@ -41,6 +41,15 @@ For a different project:
 prism advise --project <path>
 ```
 
+From an agentsview database (real API token counts, richer data):
+```bash
+prism advise --source agentsview
+prism advise --source agentsview --agentsview-db /path/to/sessions.db
+```
+
+DB path resolution: `AGENTSVIEW_DATA_DIR` → `AGENT_VIEWER_DATA_DIR` → `~/.agentsview/sessions.db`.
+Note: `--project` cannot be used with `--source agentsview`.
+
 ## Interpreting the output
 
 PRISM prints recommendations with four action types:

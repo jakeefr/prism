@@ -36,6 +36,14 @@ Generate the dashboard without opening a browser:
 prism dashboard --no-open
 ```
 
+From an agentsview database (real API token counts, health score cross-reference):
+```bash
+prism dashboard --source agentsview --no-open
+prism dashboard --source agentsview --agentsview-db /path/to/sessions.db --no-open
+```
+
+DB path resolution: `AGENTSVIEW_DATA_DIR` → `AGENT_VIEWER_DATA_DIR` → `~/.agentsview/sessions.db`.
+
 The dashboard is written to `~/.claude/prism/dashboard.html`. Tell the
 user the exact path so they can open it in their browser.
 
@@ -58,4 +66,4 @@ On most systems this is:
 - The dashboard regenerates every time `prism analyze` or
   `prism dashboard` runs. Reload the browser page after a new analysis.
 - No data leaves the machine. The dashboard reads from local session
-  files only.
+  files (or the agentsview SQLite DB with `--source agentsview`) only.
