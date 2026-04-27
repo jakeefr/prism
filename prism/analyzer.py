@@ -35,7 +35,13 @@ def estimate_tokens(text: str) -> int:
 
 
 def estimate_record_tokens(record: SessionRecord) -> int:
-    """Estimate the total token cost of a session record."""
+    """Estimate the total token cost of a session record.
+
+    Uses actual API token counts when available (agentsview backend),
+    falls back to chars/4 heuristic for JSONL-sourced records.
+    """
+    if record.actual_tokens is not None:
+        return record.actual_tokens
     total = 0
     if isinstance(record, (UserRecord, AssistantRecord)):
         for block in record.content:

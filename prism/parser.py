@@ -34,6 +34,7 @@ class Envelope:
     git_branch: str | None
     type: str  # "user" | "assistant" | "system"
     raw: dict[str, Any] = field(repr=False)
+    actual_tokens: int | None = field(default=None, repr=False)
 
 
 @dataclass

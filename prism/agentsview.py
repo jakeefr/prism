@@ -64,6 +64,8 @@ def _row_to_record(row: sqlite3.Row, session_cwd: str, session_version: str,
     blocks = [ContentBlock(type="text", text=content_text)] if content_text else []
 
     if role == "assistant":
+        if row["has_output_tokens"]:
+            kwargs["actual_tokens"] = row["output_tokens"]
         return AssistantRecord(**kwargs, content=blocks)
     if role == "user":
         return UserRecord(**kwargs, content=blocks)

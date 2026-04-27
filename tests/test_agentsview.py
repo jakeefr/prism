@@ -9,6 +9,7 @@ from prism.agentsview import AgentsviewDataSource
 from prism.datasource import SessionDataSource
 from prism.parser import (
     AssistantRecord,
+    ContentBlock,
     ProjectInfo,
     SystemRecord,
     UserRecord,
@@ -50,6 +51,8 @@ def _insert_message(
         "is_sidechain": 0,
         "is_compact_boundary": 0,
         "is_system": 0,
+        "has_output_tokens": 0,
+        "output_tokens": 0,
     }
     defaults.update(kwargs)
     ordinal = defaults.pop("ordinal", None)
@@ -61,13 +64,15 @@ def _insert_message(
     conn.execute(
         "INSERT INTO messages"
         " (session_id, ordinal, role, content, timestamp, source_uuid,"
-        "  source_parent_uuid, is_sidechain, is_compact_boundary, is_system)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "  source_parent_uuid, is_sidechain, is_compact_boundary, is_system,"
+        "  has_output_tokens, output_tokens)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             session_id, ordinal, role, content, timestamp,
             source_uuid,
             defaults["source_parent_uuid"], defaults["is_sidechain"],
             defaults["is_compact_boundary"], defaults["is_system"],
+            defaults["has_output_tokens"], defaults["output_tokens"],
         ),
     )
     return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -337,6 +342,89 @@ class TestLoadSessions:
         results = ds.load_sessions(self._make_project())
         assert results[0].records[0].content[0].text == "first"
         assert results[0].records[1].content[0].text == "second"
+
+
+class TestActualTokens:
+    """Phase 5a: real API token counts from agentsview."""
+
+    def _make_project(self, project_path: str = "/home/user/proj") -> ProjectInfo:
+        encoded = project_path_to_encoded_name(project_path)
+        return ProjectInfo(
+            encoded_name=encoded,
+            project_dir=Path(f"agentsview://{encoded}"),
+            session_files=[],
+        )
+
+    def test_assistant_gets_actual_tokens(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "assistant", content="hello",
+                        has_output_tokens=1, output_tokens=150)
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        rec = results[0].records[0]
+        assert isinstance(rec, AssistantRecord)
+        assert rec.actual_tokens == 150
+
+    def test_assistant_without_tokens_gets_none(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "assistant", content="hello",
+                        has_output_tokens=0, output_tokens=0)
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        rec = results[0].records[0]
+        assert isinstance(rec, AssistantRecord)
+        assert rec.actual_tokens is None
+
+    def test_user_record_never_gets_actual_tokens(self, tmp_path: Path):
+        db = tmp_path / "test.db"
+        _build_test_db(db)
+        conn = sqlite3.connect(db)
+        _insert_session(conn, "s1", "/home/user/proj")
+        _insert_message(conn, "s1", "user", content="hello")
+        conn.commit()
+        conn.close()
+
+        ds = AgentsviewDataSource(db)
+        results = ds.load_sessions(self._make_project())
+        rec = results[0].records[0]
+        assert isinstance(rec, UserRecord)
+        assert rec.actual_tokens is None
+
+    def test_estimate_record_tokens_uses_actual(self):
+        from prism.analyzer import estimate_record_tokens
+
+        rec = AssistantRecord(
+            uuid="u1", parent_uuid=None, is_sidechain=False,
+            session_id="s1", timestamp="", version="", cwd="",
+            git_branch=None, type="assistant", raw={},
+            actual_tokens=250,
+            content=[],
+        )
+        assert estimate_record_tokens(rec) == 250
+
+    def test_estimate_record_tokens_falls_back_to_heuristic(self):
+        from prism.analyzer import estimate_record_tokens
+
+        rec = AssistantRecord(
+            uuid="u1", parent_uuid=None, is_sidechain=False,
+            session_id="s1", timestamp="", version="", cwd="",
+            git_branch=None, type="assistant", raw={},
+            content=[ContentBlock(type="text", text="a" * 100)],
+        )
+        assert rec.actual_tokens is None
+        assert estimate_record_tokens(rec) == 25  # 100 chars / 4
 
 
 class TestResolveProjectPath:
