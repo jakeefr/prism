@@ -106,7 +106,7 @@ Followed by the advisor:
 
 ```
 ╭──────────────────────────────────────────────────────────╮
-│  PRISM ADVISOR - recommendations for myapp                │
+│  PRISM ADVISOR - recommendations for myapp               │
 ╰──────────────────────────────────────────────────────────╯
 
   ✦ TRIM  (High impact - silent token drain every session)
