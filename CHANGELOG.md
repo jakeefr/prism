@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — 2026-06-03
+
+### Fixed
+
+- **`click` declared as a direct dependency.** `cli.py` imports `click`
+  directly but relied on typer pulling it in. Typer 0.26 dropped its click
+  dependency, so a fresh `pip install prism-cc` failed at startup with
+  `ModuleNotFoundError`. (#8c0c007)
+
 ## 0.3.0 — 2026-04-26
 
 Agentsview integration: PRISM can now read sessions from the
