@@ -12,7 +12,7 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/jakeefr/prism/tests.yml?label=tests)](https://github.com/jakeefr/prism/actions)
 [![PyPI downloads](https://img.shields.io/pypi/dm/prism-cc?label=installs)](https://pypi.org/project/prism-cc/)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://github.com/jakeefr/prism)
-[![Zero dependencies](https://img.shields.io/badge/external%20deps-4-brightgreen.svg)](pyproject.toml)
+[![Zero dependencies](https://img.shields.io/badge/external%20deps-5-brightgreen.svg)](pyproject.toml)
 
 </div>
 
@@ -310,6 +310,14 @@ Claude will run `prism analyze` and interpret the results.
 > If pip isn't installed, Claude Code will detect this
 > and walk you through the installation automatically
 > before running the analysis.
+
+---
+
+## CloudCLI Plugin
+
+Using Claude Code through [CloudCLI](https://github.com/siteboon/claudecodeui)? The [PRISM plugin for CloudCLI](https://github.com/jakeefr/cloudcli-plugin-prism) adds a PRISM tab to the UI: health grades, dimension scores, and top issues for the selected project, or an all-projects overview sorted worst first.
+
+Install it from **Settings > Plugins** by pasting the repo URL. PRISM itself still needs to be on PATH (`pip install prism-cc`).
 
 ---
 
