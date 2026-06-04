@@ -1,11 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-06-03
 
-### Changed — metric accuracy (scores will shift)
+Your scores may shift relative to 0.3.x. That is because measurements got
+more accurate, not because grading got more lenient: real token counts, a
+corrected CLAUDE.md cost model, real-turn counting, gated resume detection,
+is_error-based error detection, and subagent-aware metrics. All output
+fields keep their names, types, and structure. Only the computed values
+change.
 
-All output fields keep their names, types, and structure; only the computed
-values become more accurate. Expect score shifts versus prior runs:
+### Changed (metric accuracy)
 
 - **Real token counts on the JSONL backend.** Assistant records now use
   `message.usage.output_tokens` (present on current Claude Code sessions)
@@ -14,11 +18,11 @@ values become more accurate. Expect score shifts versus prior runs:
 - **CLAUDE.md cost modeled as injection, not re-reads.** CLAUDE.md is loaded
   once per session (plus once per compaction), not once per tool call. The
   old model overstated waste by orders of magnitude on tool-heavy sessions.
-  Trivial stub sessions (< 2k tokens of activity) are excluded from both the
-  per-session issue and the waste score. Raises Token Efficiency.
-- **Turns = real user prompts.** Turn counting previously included every
+  Trivial stub sessions (under 2k tokens of activity) are excluded from both
+  the per-session issue and the waste score. Raises Token Efficiency.
+- **Turns are real user prompts.** Turn counting previously included every
   tool-result record, making tool-heavy sessions look 5-10x longer; the
-  >100-turn warning now fires on actual user prompts. Raises Context Hygiene
+  100-turn warning now fires on actual user prompts. Raises Context Hygiene
   on tool-heavy projects.
 - **Context-loss phrases only checked on resumed sessions.** Fresh sessions
   opening with "let me start by..." are no longer counted as context loss.
@@ -30,17 +34,18 @@ values become more accurate. Expect score shifts versus prior runs:
 - **Subagent transcripts attached to parent sessions.** Transcripts under
   `<session-uuid>/subagents/` (current Claude Code layout) now merge into
   their parent session, so subagent token usage and sidechain metrics count
-  again. Session counts are unchanged — agent files are not sessions. Each
+  again. Session counts are unchanged; agent files are not sessions. Each
   transcript is analyzed independently for order-sensitive detections
   (retry loops, failure streaks), so nothing chains across the seam between
-  transcripts; a truncated subagent transcript marks the session truncated.
+  transcripts. A truncated subagent transcript marks the session truncated.
+  Compactions are counted from the main transcript only.
 
 ### Fixed
 
 - **`analyze --json` emitted corrupt JSON.** Output was printed through the
-  rich console, which wraps lines at terminal width (80 on non-TTY) —
+  rich console, which wraps lines at terminal width (80 on non-TTY),
   injecting raw newlines inside JSON string literals whenever an issue
-  description exceeded ~80 chars — and interprets `[bracket]` text in
+  description exceeded about 80 chars, and interprets `[bracket]` text in
   descriptions as markup, silently stripping it. Either corruption breaks
   `JSON.parse` in downstream consumers. Now printed plain. A contract
   regression test locks in valid round-trippable output and the fields
@@ -50,8 +55,7 @@ values become more accurate. Expect score shifts versus prior runs:
   prompts) with `message.content` as a string instead of a block array. The
   parser produced no content blocks for these, so continuation/resume/
   interrupted classification never fired on the JSONL backend. A bare string
-  now parses as a single text block. Note: Session Continuity scores may
-  shift versus prior runs — continuations are now actually detected.
+  now parses as a single text block.
 
 ## 0.3.1 — 2026-06-03
 
