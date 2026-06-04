@@ -606,6 +606,19 @@ class TestSubagentAttachment:
         assert len(sessions) == 1
         assert len(sessions[0].records) == 1
 
+    def test_truncated_subagent_marks_session_truncated(self, tmp_path):
+        """A subagent transcript cut mid-write is data loss for the session."""
+        proj = self._build_project(tmp_path)
+        agents = proj / "abc-123" / "subagents"
+        (agents / "agent-cut.jsonl").write_text(
+            _jsonl_line("s9", "user", True, "started") + "\n"
+            + '{"uuid":"s10","type":"assist',  # truncated mid-record
+            encoding="utf-8",
+        )
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        assert sessions[0].truncated is True
+
 
 # ---------------------------------------------------------------------------
 # parse_session_file tests

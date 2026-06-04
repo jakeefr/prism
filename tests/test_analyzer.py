@@ -349,7 +349,8 @@ class TestClaudeMdInjectionCost:
         lines = []
         for i in range(10):
             lines.append(_tool_use(f"a{i}", f"t{i}"))
-            lines.append(_tool_result(f"u{i}", f"t{i}", "ok"))
+            # Substantial results so the session clears the stub-session floor.
+            lines.append(_tool_result(f"u{i}", f"t{i}", "y" * 1_200))
         session = _session(tmp_path, "s.jsonl", lines)
         metrics = analyze_token_efficiency([session], md)
         assert metrics.claude_md_size_tokens == 100
@@ -386,14 +387,14 @@ class TestClaudeMdInjectionCost:
         md = self._claude_md(tmp_path)
         lines = [
             _tool_use("a1", "t1"),
-            _tool_result("u1", "t1", "ok"),
+            _tool_result("u1", "t1", "y" * 3_000),
             _compact_boundary("c1"),
             _tool_use("a2", "t2"),
-            _tool_result("u2", "t2", "ok"),
+            _tool_result("u2", "t2", "y" * 3_000),
             _tool_use("a3", "t3"),
-            _tool_result("u3", "t3", "ok"),
+            _tool_result("u3", "t3", "y" * 3_000),
             _tool_use("a4", "t4"),
-            _tool_result("u4", "t4", "ok"),
+            _tool_result("u4", "t4", "y" * 3_000),
         ]
         session = _session(tmp_path, "s.jsonl", lines)
         metrics = analyze_token_efficiency([session], md)
@@ -495,6 +496,98 @@ class TestConsecutiveFailureFlag:
         session = _session(tmp_path, "s.jsonl", lines)
         metrics = analyze_tool_health([session])
         assert metrics.consecutive_failure_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Transcript boundaries (parent + merged subagent transcripts)
+# ---------------------------------------------------------------------------
+
+class TestTranscriptBoundaries:
+    """Order-sensitive detections must not chain across the seam between a
+    parent transcript and merged subagent transcripts."""
+
+    def _build_split_failures(self, tmp_path: Path):
+        """Main transcript ends with 2 flagged failures; subagent starts with 1.
+        Flat-concatenated they would look like 3 consecutive failures."""
+        from prism.parser import discover_projects, load_all_sessions
+        proj = tmp_path / "D--proj"
+        proj.mkdir()
+        main_lines = [
+            _tool_use("a1", "t1"),
+            _tool_result("r1", "t1", "boom", is_error=True),
+            _tool_use("a2", "t2"),
+            _tool_result("r2", "t2", "boom", is_error=True),
+        ]
+        (proj / "sess-1.jsonl").write_text("\n".join(main_lines) + "\n", encoding="utf-8")
+        agents = proj / "sess-1" / "subagents"
+        agents.mkdir(parents=True)
+        agent_lines = [
+            _line("s1", "assistant",
+                  [{"type": "tool_use", "id": "st1", "name": "Bash",
+                    "input": {"command": "echo hi"}}], isSidechain=True),
+            _line("s2", "user",
+                  [{"type": "tool_result", "tool_use_id": "st1",
+                    "content": "boom", "is_error": True}], isSidechain=True),
+            _line("s3", "assistant", [{"type": "text", "text": "recovered"}],
+                  isSidechain=True),
+        ]
+        (agents / "agent-a.jsonl").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        projects = discover_projects(tmp_path)
+        return load_all_sessions(projects[0])
+
+    def test_failures_do_not_chain_across_transcripts(self, tmp_path):
+        sessions = self._build_split_failures(tmp_path)
+        assert len(sessions) == 1
+        # All 3 sidechain+main records merged...
+        assert any(r.is_sidechain for r in sessions[0].records)
+        # ...but 2 failures in the parent + 1 in the subagent is not a streak of 3.
+        metrics = analyze_tool_health(sessions)
+        assert metrics.consecutive_failure_count == 0
+
+    def test_retry_loops_do_not_span_transcripts(self, tmp_path):
+        """2 identical calls in parent + 1 identical in subagent != retry loop."""
+        from prism.parser import discover_projects, load_all_sessions
+        proj = tmp_path / "D--proj"
+        proj.mkdir()
+        same = {"command": "pytest tests/"}
+        main_lines = [
+            _tool_use("a1", "t1", inp=same),
+            _tool_use("a2", "t2", inp=same),
+        ]
+        (proj / "sess-1.jsonl").write_text("\n".join(main_lines) + "\n", encoding="utf-8")
+        agents = proj / "sess-1" / "subagents"
+        agents.mkdir(parents=True)
+        agent_lines = [
+            _line("s1", "assistant",
+                  [{"type": "tool_use", "id": "st1", "name": "Bash", "input": same}],
+                  isSidechain=True),
+        ]
+        (agents / "agent-a.jsonl").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        metrics = analyze_tool_health(sessions)
+        assert metrics.retry_loop_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Stub-session gate must cover the score, not just the issue
+# ---------------------------------------------------------------------------
+
+class TestStubSessionScoreGate:
+    def test_stub_sessions_do_not_drag_token_efficiency_score(self, tmp_path):
+        """A project of tiny stub sessions must not lose Token Efficiency
+        points to CLAUDE.md cost — same gate as the per-session issue."""
+        md = tmp_path / "CLAUDE.md"
+        md.write_text("x" * 4_000, encoding="utf-8")  # ~1k tokens
+        sessions = []
+        for i in range(3):
+            sessions.append(_session(tmp_path, f"stub{i}.jsonl", [
+                _user_text(f"u{i}", "hi"),
+                _assistant_text(f"a{i}", "hello"),
+            ]))
+        metrics = analyze_token_efficiency(sessions, md)
+        assert metrics.claude_md_reread_tokens == 0
+        assert metrics.score == 100.0
 
 
 class TestSessionContinuity:

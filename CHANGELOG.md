@@ -14,7 +14,8 @@ values become more accurate. Expect score shifts versus prior runs:
 - **CLAUDE.md cost modeled as injection, not re-reads.** CLAUDE.md is loaded
   once per session (plus once per compaction), not once per tool call. The
   old model overstated waste by orders of magnitude on tool-heavy sessions.
-  Trivial stub sessions are no longer flagged. Raises Token Efficiency.
+  Trivial stub sessions (< 2k tokens of activity) are excluded from both the
+  per-session issue and the waste score. Raises Token Efficiency.
 - **Turns = real user prompts.** Turn counting previously included every
   tool-result record, making tool-heavy sessions look 5-10x longer; the
   >100-turn warning now fires on actual user prompts. Raises Context Hygiene
@@ -29,7 +30,10 @@ values become more accurate. Expect score shifts versus prior runs:
 - **Subagent transcripts attached to parent sessions.** Transcripts under
   `<session-uuid>/subagents/` (current Claude Code layout) now merge into
   their parent session, so subagent token usage and sidechain metrics count
-  again. Session counts are unchanged — agent files are not sessions.
+  again. Session counts are unchanged — agent files are not sessions. Each
+  transcript is analyzed independently for order-sensitive detections
+  (retry loops, failure streaks), so nothing chains across the seam between
+  transcripts; a truncated subagent transcript marks the session truncated.
 
 ### Fixed
 

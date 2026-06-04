@@ -236,6 +236,15 @@ class ParseResult:
     records: list[SessionRecord]
     skipped_lines: int = 0
     truncated: bool = False  # last line was not valid JSON
+    # When subagent transcripts are merged in, the per-transcript record
+    # groups (main first). None when the session is a single transcript.
+    transcripts: list[list[SessionRecord]] | None = field(default=None, repr=False)
+
+    def transcript_groups(self) -> list[list[SessionRecord]]:
+        """Record groups to analyze independently for order-sensitive checks."""
+        if self.transcripts:
+            return self.transcripts
+        return [self.records] if self.records else []
 
 
 def parse_session_file(path: Path) -> ParseResult:
@@ -396,9 +405,21 @@ def load_all_sessions(project: ProjectInfo) -> list[ParseResult]:
         result = parse_session_file(session_file)
         subagents_dir = session_file.parent / session_file.stem / "subagents"
         if subagents_dir.is_dir():
+            main_records = result.records
+            agent_groups: list[list[SessionRecord]] = []
             for agent_file in sorted(subagents_dir.glob("*.jsonl")):
                 agent_result = parse_session_file(agent_file)
-                result.records.extend(agent_result.records)
+                if agent_result.records:
+                    agent_groups.append(agent_result.records)
                 result.skipped_lines += agent_result.skipped_lines
+                result.truncated = result.truncated or agent_result.truncated
+            if agent_groups:
+                merged = list(main_records)
+                for group in agent_groups:
+                    merged.extend(group)
+                result.records = merged
+                # Keep per-transcript groups so order-sensitive detections
+                # (retry loops, failure streaks) don't chain across the seam.
+                result.transcripts = ([main_records] if main_records else []) + agent_groups
         results.append(result)
     return results

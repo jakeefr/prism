@@ -147,13 +147,14 @@ def analyze_token_efficiency(
 
         # CLAUDE.md injection cost: loaded once per session (system prompt),
         # re-injected once after each compaction — not per tool call.
-        if m.claude_md_size_tokens > 0 and session.records:
+        # Stub sessions (< 2k tokens of activity) are excluded entirely — they
+        # trivially "spend" more on CLAUDE.md than on work, which is noise for
+        # both the waste score and the per-session issue.
+        if m.claude_md_size_tokens > 0 and session_tokens >= 2_000:
             injection_count = 1 + session_compactions
             reread_cost = injection_count * m.claude_md_size_tokens
             m.claude_md_reread_tokens += reread_cost
-            # Only flag sessions with real activity — stub sessions trivially
-            # "spend" more on CLAUDE.md than on work, which is noise.
-            if session_tokens >= 2_000 and reread_cost / session_tokens > 0.15:
+            if reread_cost / session_tokens > 0.15:
                 m.issues.append(Issue(
                     severity="high",
                     category="token_efficiency",
@@ -255,110 +256,114 @@ def analyze_tool_health(sessions: list[ParseResult]) -> ToolHealthMetrics:
 
     for session in sessions:
         session_id = session.records[0].session_id if session.records else ""
-        tool_calls: list[ContentBlock] = []
-        tool_results: list[ContentBlock] = []
 
-        # Collect all tool_use and tool_result blocks in order
-        for record in session.records:
-            if isinstance(record, AssistantRecord):
-                for block in record.content:
-                    if block.type == "tool_use":
-                        tool_calls.append(block)
-                        m.total_tool_calls += 1
-            elif isinstance(record, UserRecord):
-                for block in record.content:
-                    if block.type == "tool_result":
-                        tool_results.append(block)
+        # Analyze each transcript (main + merged subagents) independently so
+        # order-sensitive detections never chain across transcript seams.
+        for group in session.transcript_groups():
+            tool_calls: list[ContentBlock] = []
+            tool_results: list[ContentBlock] = []
 
-        # Detect retry loops (3+ consecutive calls to same tool with same/similar input)
-        for i in range(len(tool_calls) - 2):
-            t1, t2, t3 = tool_calls[i], tool_calls[i + 1], tool_calls[i + 2]
-            if (t1.tool_name == t2.tool_name == t3.tool_name and
-                    t1.tool_input == t2.tool_input):
-                m.retry_loop_count += 1
-                m.issues.append(Issue(
-                    severity="high",
-                    category="tool_health",
-                    description=f"Retry loop detected: {t1.tool_name} called 3+ times with same input",
-                    session_id=session_id,
-                    evidence=str(t1.tool_input)[:120] if t1.tool_input else "",
-                    count=3,
-                ))
-                break  # count once per session block
+            # Collect all tool_use and tool_result blocks in order
+            for record in group:
+                if isinstance(record, AssistantRecord):
+                    for block in record.content:
+                        if block.type == "tool_use":
+                            tool_calls.append(block)
+                            m.total_tool_calls += 1
+                elif isinstance(record, UserRecord):
+                    for block in record.content:
+                        if block.type == "tool_result":
+                            tool_results.append(block)
 
-        # Detect migration file edits
-        for block in tool_calls:
-            if block.tool_name in ("Write", "Edit") and block.tool_input:
-                fp = block.tool_input.get("file_path", "")
-                if "migration" in fp.lower() or "/migrations/" in fp.lower():
-                    m.migration_edit_count += 1
+            # Detect retry loops (3+ consecutive calls to same tool with same/similar input)
+            for i in range(len(tool_calls) - 2):
+                t1, t2, t3 = tool_calls[i], tool_calls[i + 1], tool_calls[i + 2]
+                if (t1.tool_name == t2.tool_name == t3.tool_name and
+                        t1.tool_input == t2.tool_input):
+                    m.retry_loop_count += 1
                     m.issues.append(Issue(
                         severity="high",
                         category="tool_health",
-                        description=f"Migration file edited: {fp}",
+                        description=f"Retry loop detected: {t1.tool_name} called 3+ times with same input",
                         session_id=session_id,
-                        evidence=fp,
+                        evidence=str(t1.tool_input)[:120] if t1.tool_input else "",
+                        count=3,
                     ))
+                    break  # count once per transcript
 
-        # Detect interactive commands
-        for block in tool_calls:
-            if block.tool_name == "Bash" and block.tool_input:
-                cmd = block.tool_input.get("command", "")
-                if _command_is_interactive(cmd):
-                    m.interactive_call_count += 1
-                    m.issues.append(Issue(
-                        severity="medium",
-                        category="tool_health",
-                        description=f"Potentially interactive Bash command: {cmd[:80]}",
-                        session_id=session_id,
-                        evidence=cmd[:120],
-                    ))
-
-        # Detect edit-revert cycles (Write/Edit to same file within 3 turns)
-        edit_history: list[tuple[str, int]] = []  # (file_path, index)
-        for idx, block in enumerate(tool_calls):
-            if block.tool_name in ("Write", "Edit") and block.tool_input:
-                fp = block.tool_input.get("file_path", "")
-                # Check if this file was edited recently (within 3 positions)
-                for prev_fp, prev_idx in edit_history[-6:]:
-                    if prev_fp == fp and (idx - prev_idx) <= 3 and idx != prev_idx:
-                        m.edit_revert_count += 1
+            # Detect migration file edits
+            for block in tool_calls:
+                if block.tool_name in ("Write", "Edit") and block.tool_input:
+                    fp = block.tool_input.get("file_path", "")
+                    if "migration" in fp.lower() or "/migrations/" in fp.lower():
+                        m.migration_edit_count += 1
                         m.issues.append(Issue(
-                            severity="medium",
+                            severity="high",
                             category="tool_health",
-                            description=f"Edit-revert cycle detected on {fp}",
+                            description=f"Migration file edited: {fp}",
                             session_id=session_id,
                             evidence=fp,
                         ))
-                        break
-                edit_history.append((fp, idx))
 
-        # Detect consecutive tool failures. Trust the is_error flag when the
-        # record carries one; fall back to prose matching for sources without
-        # it (older JSONL files, the agentsview backend).
-        consecutive_errors = 0
-        max_consecutive = 0
-        for result_block in tool_results:
-            if result_block.is_error is not None:
-                failed = result_block.is_error
-            else:
-                content_str = str(result_block.tool_content or "")
-                failed = bool(ERROR_PATTERNS.search(content_str))
-            if failed:
-                consecutive_errors += 1
-                max_consecutive = max(max_consecutive, consecutive_errors)
-            else:
-                consecutive_errors = 0
+            # Detect interactive commands
+            for block in tool_calls:
+                if block.tool_name == "Bash" and block.tool_input:
+                    cmd = block.tool_input.get("command", "")
+                    if _command_is_interactive(cmd):
+                        m.interactive_call_count += 1
+                        m.issues.append(Issue(
+                            severity="medium",
+                            category="tool_health",
+                            description=f"Potentially interactive Bash command: {cmd[:80]}",
+                            session_id=session_id,
+                            evidence=cmd[:120],
+                        ))
 
-        if max_consecutive >= 3:
-            m.consecutive_failure_count += 1
-            m.issues.append(Issue(
-                severity="high",
-                category="tool_health",
-                description=f"Consecutive tool failures: {max_consecutive} errors in a row",
-                session_id=session_id,
-                count=max_consecutive,
-            ))
+            # Detect edit-revert cycles (Write/Edit to same file within 3 turns)
+            edit_history: list[tuple[str, int]] = []  # (file_path, index)
+            for idx, block in enumerate(tool_calls):
+                if block.tool_name in ("Write", "Edit") and block.tool_input:
+                    fp = block.tool_input.get("file_path", "")
+                    # Check if this file was edited recently (within 3 positions)
+                    for prev_fp, prev_idx in edit_history[-6:]:
+                        if prev_fp == fp and (idx - prev_idx) <= 3 and idx != prev_idx:
+                            m.edit_revert_count += 1
+                            m.issues.append(Issue(
+                                severity="medium",
+                                category="tool_health",
+                                description=f"Edit-revert cycle detected on {fp}",
+                                session_id=session_id,
+                                evidence=fp,
+                            ))
+                            break
+                    edit_history.append((fp, idx))
+
+            # Detect consecutive tool failures. Trust the is_error flag when the
+            # record carries one; fall back to prose matching for sources without
+            # it (older JSONL files, the agentsview backend).
+            consecutive_errors = 0
+            max_consecutive = 0
+            for result_block in tool_results:
+                if result_block.is_error is not None:
+                    failed = result_block.is_error
+                else:
+                    content_str = str(result_block.tool_content or "")
+                    failed = bool(ERROR_PATTERNS.search(content_str))
+                if failed:
+                    consecutive_errors += 1
+                    max_consecutive = max(max_consecutive, consecutive_errors)
+                else:
+                    consecutive_errors = 0
+
+            if max_consecutive >= 3:
+                m.consecutive_failure_count += 1
+                m.issues.append(Issue(
+                    severity="high",
+                    category="tool_health",
+                    description=f"Consecutive tool failures: {max_consecutive} errors in a row",
+                    session_id=session_id,
+                    count=max_consecutive,
+                ))
 
     # Score calculation
     score = 100.0
@@ -438,7 +443,11 @@ def analyze_context_hygiene(sessions: list[ParseResult]) -> ContextHygieneMetric
 
     for session in sessions:
         session_id = session.records[0].session_id if session.records else ""
-        turn_count = _count_turns(session.records)
+        # Turn counting and post-compaction patterns concern the main
+        # conversation; merged subagent transcripts would skew both.
+        groups = session.transcript_groups()
+        main_records = groups[0] if groups else []
+        turn_count = _count_turns(main_records)
 
         # Count compactions
         compactions = [
@@ -457,7 +466,7 @@ def analyze_context_hygiene(sessions: list[ParseResult]) -> ContextHygieneMetric
             ))
 
             # Check for mid-task compaction (tool patterns repeat after boundary)
-            if _has_repeated_tool_pattern_after_boundary(session.records):
+            if _has_repeated_tool_pattern_after_boundary(main_records):
                 m.mid_task_compactions += 1
                 m.issues.append(Issue(
                     severity="high",
