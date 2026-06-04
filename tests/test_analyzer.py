@@ -617,6 +617,35 @@ class TestTranscriptBoundaries:
         metrics = analyze_context_hygiene(sessions)
         assert metrics.compaction_count == 0
 
+    def test_subagent_compaction_not_counted_for_token_efficiency(self, tmp_path):
+        """Token efficiency must also exclude subagent compactions — they feed
+        the compaction-rate penalty and the CLAUDE.md injection count."""
+        from prism.parser import discover_projects, load_all_sessions
+        proj = tmp_path / "D--proj"
+        proj.mkdir()
+        md = tmp_path / "CLAUDE.md"
+        md.write_text("x" * 400, encoding="utf-8")  # ~100 tokens
+        # Substantial main transcript so the stub-session floor doesn't apply.
+        main_lines = [
+            _user_text("u1", "do the thing"),
+            _assistant_text("a1", "y" * 12_000),
+        ]
+        (proj / "sess-1.jsonl").write_text("\n".join(main_lines) + "\n", encoding="utf-8")
+        agents = proj / "sess-1" / "subagents"
+        agents.mkdir(parents=True)
+        agent_lines = [
+            _line("s1", "user", [{"type": "text", "text": "subagent task"}],
+                  isSidechain=True),
+            _compact_boundary("sc1", isSidechain=True),
+        ]
+        (agents / "agent-a.jsonl").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        metrics = analyze_token_efficiency(sessions, md)
+        assert metrics.compaction_count == 0
+        # One injection only — the subagent compaction must not add another.
+        assert metrics.claude_md_reread_tokens == metrics.claude_md_size_tokens
+
     def test_empty_parent_does_not_promote_subagent_to_main(self, tmp_path):
         """If the parent file has no parseable records, the first subagent
         transcript must not be treated as the main conversation."""
