@@ -167,9 +167,9 @@ PRISM never touches Claude Code. It never modifies your sessions. It reads the J
 
 ### Data sources
 
-**JSONL (default)** — reads raw session files from `~/.claude/projects/`. This is the zero-setup path that works out of the box.
+**JSONL (default)** - reads raw session files from `~/.claude/projects/`. This is the zero-setup path that works out of the box.
 
-**agentsview** — reads from an [agentsview](https://github.com/wesm/agentsview) SQLite database. agentsview parses and normalizes Claude Code sessions into a queryable DB, so PRISM gets richer data: real API token counts (instead of the chars/4 heuristic) and agentsview's own health_score/health_grade/outcome per session, shown alongside PRISM's grades.
+**agentsview** - reads from an [agentsview](https://github.com/wesm/agentsview) SQLite database. agentsview parses and normalizes Claude Code sessions into a queryable DB, so PRISM gets richer data: real API token counts (instead of the chars/4 heuristic) and agentsview's own health_score/health_grade/outcome per session, shown alongside PRISM's grades.
 
 ```bash
 # Use agentsview as the data source
