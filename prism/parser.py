@@ -420,6 +420,8 @@ def load_all_sessions(project: ProjectInfo) -> list[ParseResult]:
                 result.records = merged
                 # Keep per-transcript groups so order-sensitive detections
                 # (retry loops, failure streaks) don't chain across the seam.
-                result.transcripts = ([main_records] if main_records else []) + agent_groups
+                # The main transcript keeps slot 0 even when empty so callers
+                # never mistake a subagent transcript for the main one.
+                result.transcripts = [main_records] + agent_groups
         results.append(result)
     return results

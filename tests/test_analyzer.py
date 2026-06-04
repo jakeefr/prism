@@ -311,8 +311,8 @@ def _tool_result(uuid: str, tool_id: str, content: str, is_error: bool | None = 
     return _line(uuid, "user", [block])
 
 
-def _compact_boundary(uuid: str) -> str:
-    return json.dumps({
+def _compact_boundary(uuid: str, **extra) -> str:
+    rec = {
         "uuid": uuid,
         "parentUuid": None,
         "isSidechain": False,
@@ -324,7 +324,9 @@ def _compact_boundary(uuid: str) -> str:
         "type": "system",
         "subtype": "compact_boundary",
         "summary": "context compacted",
-    })
+    }
+    rec.update(extra)
+    return json.dumps(rec)
 
 
 def _session(tmp_path: Path, name: str, lines: list[str]):
@@ -567,6 +569,74 @@ class TestTranscriptBoundaries:
         sessions = load_all_sessions(projects[0])
         metrics = analyze_tool_health(sessions)
         assert metrics.retry_loop_count == 0
+
+    def test_retry_loop_in_each_transcript_counts_per_transcript(self, tmp_path):
+        """A full retry loop in the main transcript AND one in a subagent are
+        two distinct loops — counted once per transcript."""
+        from prism.parser import discover_projects, load_all_sessions
+        proj = tmp_path / "D--proj"
+        proj.mkdir()
+        same = {"command": "pytest tests/"}
+        main_lines = [_tool_use(f"a{i}", f"t{i}", inp=same) for i in range(3)]
+        (proj / "sess-1.jsonl").write_text("\n".join(main_lines) + "\n", encoding="utf-8")
+        agents = proj / "sess-1" / "subagents"
+        agents.mkdir(parents=True)
+        agent_lines = [
+            _line(f"s{i}", "assistant",
+                  [{"type": "tool_use", "id": f"st{i}", "name": "Bash", "input": same}],
+                  isSidechain=True)
+            for i in range(3)
+        ]
+        (agents / "agent-a.jsonl").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        metrics = analyze_tool_health(sessions)
+        assert metrics.retry_loop_count == 2
+
+    def test_subagent_compaction_not_counted_for_session(self, tmp_path):
+        """Compaction inside a subagent transcript is not a main-session
+        compaction event."""
+        from prism.parser import discover_projects, load_all_sessions
+        proj = tmp_path / "D--proj"
+        proj.mkdir()
+        main_lines = [
+            _user_text("u1", "do the thing"),
+            _assistant_text("a1", "done"),
+        ]
+        (proj / "sess-1.jsonl").write_text("\n".join(main_lines) + "\n", encoding="utf-8")
+        agents = proj / "sess-1" / "subagents"
+        agents.mkdir(parents=True)
+        agent_lines = [
+            _line("s1", "user", [{"type": "text", "text": "subagent task"}],
+                  isSidechain=True),
+            _compact_boundary("sc1", isSidechain=True),
+        ]
+        (agents / "agent-a.jsonl").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        metrics = analyze_context_hygiene(sessions)
+        assert metrics.compaction_count == 0
+
+    def test_empty_parent_does_not_promote_subagent_to_main(self, tmp_path):
+        """If the parent file has no parseable records, the first subagent
+        transcript must not be treated as the main conversation."""
+        from prism.parser import discover_projects, load_all_sessions
+        proj = tmp_path / "D--proj"
+        proj.mkdir()
+        (proj / "sess-1.jsonl").write_text("not json at all\n", encoding="utf-8")
+        agents = proj / "sess-1" / "subagents"
+        agents.mkdir(parents=True)
+        agent_lines = []
+        for i in range(105):
+            agent_lines.append(_line(f"su{i}", "user",
+                                     [{"type": "text", "text": f"prompt {i}"}],
+                                     isSidechain=True))
+        (agents / "agent-a.jsonl").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        metrics = analyze_context_hygiene(sessions)
+        # 105 subagent prompts are not 105 main-conversation turns.
+        assert metrics.long_sessions == 0
 
 
 # ---------------------------------------------------------------------------

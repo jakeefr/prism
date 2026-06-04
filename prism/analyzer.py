@@ -129,7 +129,6 @@ def analyze_token_efficiency(
 
     for session in sessions:
         session_tokens = 0
-        session_compactions = 0
 
         for record in session.records:
             rt = estimate_record_tokens(record)
@@ -139,9 +138,15 @@ def analyze_token_efficiency(
             if record.is_sidechain:
                 m.sidechain_count += 1
 
-            if isinstance(record, SystemRecord) and record.subtype == "compact_boundary":
-                m.compaction_count += 1
-                session_compactions += 1
+        # Compactions are counted from the main transcript only — a compaction
+        # inside a merged subagent transcript is not a session-context event.
+        groups = session.transcript_groups()
+        main_records = groups[0] if groups else []
+        session_compactions = sum(
+            1 for r in main_records
+            if isinstance(r, SystemRecord) and r.subtype == "compact_boundary"
+        )
+        m.compaction_count += session_compactions
 
         m.total_tokens += session_tokens
 
@@ -449,9 +454,10 @@ def analyze_context_hygiene(sessions: list[ParseResult]) -> ContextHygieneMetric
         main_records = groups[0] if groups else []
         turn_count = _count_turns(main_records)
 
-        # Count compactions
+        # Count compactions — main transcript only; subagent compactions are
+        # not main-session context events.
         compactions = [
-            r for r in session.records
+            r for r in main_records
             if isinstance(r, SystemRecord) and r.subtype == "compact_boundary"
         ]
         m.compaction_count += len(compactions)
