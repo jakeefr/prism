@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Changed — metric accuracy (scores will shift)
+
+All output fields keep their names, types, and structure; only the computed
+values become more accurate. Expect score shifts versus prior runs:
+
+- **Real token counts on the JSONL backend.** Assistant records now use
+  `message.usage.output_tokens` (present on current Claude Code sessions)
+  instead of the chars/4 estimate, matching the agentsview backend. Falls
+  back to the estimate when usage is absent. Shifts Token Efficiency.
+- **CLAUDE.md cost modeled as injection, not re-reads.** CLAUDE.md is loaded
+  once per session (plus once per compaction), not once per tool call. The
+  old model overstated waste by orders of magnitude on tool-heavy sessions.
+  Trivial stub sessions are no longer flagged. Raises Token Efficiency.
+- **Turns = real user prompts.** Turn counting previously included every
+  tool-result record, making tool-heavy sessions look 5-10x longer; the
+  >100-turn warning now fires on actual user prompts. Raises Context Hygiene
+  on tool-heavy projects.
+- **Context-loss phrases only checked on resumed sessions.** Fresh sessions
+  opening with "let me start by..." are no longer counted as context loss.
+  Raises Session Continuity.
+- **Tool failures use the `is_error` flag when present.** Prose matching
+  ("error", "failed") misfired on text like "0 errors"; the flag is now
+  authoritative when a tool result carries one, with prose matching kept as
+  fallback for older files and the agentsview backend. Shifts Tool Health.
+- **Subagent transcripts attached to parent sessions.** Transcripts under
+  `<session-uuid>/subagents/` (current Claude Code layout) now merge into
+  their parent session, so subagent token usage and sidechain metrics count
+  again. Session counts are unchanged — agent files are not sessions.
+
 ### Fixed
 
 - **`analyze --json` emitted corrupt JSON.** Output was printed through the

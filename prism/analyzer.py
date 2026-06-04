@@ -129,7 +129,7 @@ def analyze_token_efficiency(
 
     for session in sessions:
         session_tokens = 0
-        tool_call_count = 0
+        session_compactions = 0
 
         for record in session.records:
             rt = estimate_record_tokens(record)
@@ -141,32 +141,28 @@ def analyze_token_efficiency(
 
             if isinstance(record, SystemRecord) and record.subtype == "compact_boundary":
                 m.compaction_count += 1
-
-            if isinstance(record, AssistantRecord):
-                for block in record.content:
-                    if block.type == "tool_use":
-                        tool_call_count += 1
+                session_compactions += 1
 
         m.total_tokens += session_tokens
 
-        # CLAUDE.md re-read cost estimation
-        if m.claude_md_size_tokens > 0 and tool_call_count > 0:
-            reread_cost = tool_call_count * m.claude_md_size_tokens
+        # CLAUDE.md injection cost: loaded once per session (system prompt),
+        # re-injected once after each compaction — not per tool call.
+        if m.claude_md_size_tokens > 0 and session.records:
+            injection_count = 1 + session_compactions
+            reread_cost = injection_count * m.claude_md_size_tokens
             m.claude_md_reread_tokens += reread_cost
-            if session_tokens > 0 and reread_cost / session_tokens > 0.15:
+            # Only flag sessions with real activity — stub sessions trivially
+            # "spend" more on CLAUDE.md than on work, which is noise.
+            if session_tokens >= 2_000 and reread_cost / session_tokens > 0.15:
                 m.issues.append(Issue(
                     severity="high",
                     category="token_efficiency",
-                    description=f"CLAUDE.md re-reads consume >{int(reread_cost/session_tokens*100)}% of session tokens",
+                    description=f"CLAUDE.md context cost is >{int(reread_cost/session_tokens*100)}% of session tokens",
                     session_id=session.records[0].session_id if session.records else "",
-                    count=tool_call_count,
+                    count=injection_count,
                 ))
 
         # Compaction warning (more than 1 per session)
-        session_compactions = sum(
-            1 for r in session.records
-            if isinstance(r, SystemRecord) and r.subtype == "compact_boundary"
-        )
         if session_compactions > 1:
             m.issues.append(Issue(
                 severity="medium",
@@ -337,12 +333,18 @@ def analyze_tool_health(sessions: list[ParseResult]) -> ToolHealthMetrics:
                         break
                 edit_history.append((fp, idx))
 
-        # Detect consecutive tool failures
+        # Detect consecutive tool failures. Trust the is_error flag when the
+        # record carries one; fall back to prose matching for sources without
+        # it (older JSONL files, the agentsview backend).
         consecutive_errors = 0
         max_consecutive = 0
         for result_block in tool_results:
-            content_str = str(result_block.tool_content or "")
-            if ERROR_PATTERNS.search(content_str):
+            if result_block.is_error is not None:
+                failed = result_block.is_error
+            else:
+                content_str = str(result_block.tool_content or "")
+                failed = bool(ERROR_PATTERNS.search(content_str))
+            if failed:
                 consecutive_errors += 1
                 max_consecutive = max(max_consecutive, consecutive_errors)
             else:
@@ -387,8 +389,16 @@ class ContextHygieneMetrics:
 
 
 def _count_turns(records: list[SessionRecord]) -> int:
-    """Count user+assistant turn pairs."""
-    return sum(1 for r in records if isinstance(r, (UserRecord, AssistantRecord)))
+    """Count real conversational turns: user prompts containing text.
+
+    Tool-result-only user records are plumbing, not turns — counting them
+    made tool-heavy sessions look 5-10x longer than they were.
+    """
+    return sum(
+        1 for r in records
+        if isinstance(r, UserRecord)
+        and any(b.type == "text" and b.text for b in r.content)
+    )
 
 
 def _has_repeated_tool_pattern_after_boundary(records: list[SessionRecord]) -> bool:
@@ -686,26 +696,28 @@ def analyze_session_continuity(sessions: list[ParseResult]) -> SessionContinuity
         if is_resumed:
             m.resumed_sessions += 1
 
-        # Check first few assistant turns for context re-establishment phrases
-        first_assistant_turns = [
-            r for r in session.records[:10]
-            if isinstance(r, AssistantRecord)
-        ][:3]
-        for turn in first_assistant_turns:
-            for block in turn.content:
-                if block.text and RESUME_CONTEXT_LOSS_PHRASES.search(block.text):
-                    m.context_loss_resumes += 1
-                    m.issues.append(Issue(
-                        severity="medium",
-                        category="session_continuity",
-                        description="Context re-establishment phrases detected at session start",
-                        session_id=session_id,
-                        evidence=block.text[:100],
-                    ))
-                    break
-            else:
-                continue
-            break
+            # Check first few assistant turns for context re-establishment
+            # phrases — only meaningful on resumed sessions; fresh sessions
+            # legitimately open with "let me start by...".
+            first_assistant_turns = [
+                r for r in session.records[:10]
+                if isinstance(r, AssistantRecord)
+            ][:3]
+            for turn in first_assistant_turns:
+                for block in turn.content:
+                    if block.text and RESUME_CONTEXT_LOSS_PHRASES.search(block.text):
+                        m.context_loss_resumes += 1
+                        m.issues.append(Issue(
+                            severity="medium",
+                            category="session_continuity",
+                            description="Context re-establishment phrases detected after resume",
+                            session_id=session_id,
+                            evidence=block.text[:100],
+                        ))
+                        break
+                else:
+                    continue
+                break
 
     # Score
     score = 100.0

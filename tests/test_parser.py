@@ -15,6 +15,7 @@ from prism.parser import (
     SystemRecord,
     UserRecord,
     discover_projects,
+    load_all_sessions,
     parse_record,
     parse_session_file,
     project_path_to_encoded_name,
@@ -461,6 +462,149 @@ class TestParseRecord:
         record = parse_record(data)
         assert isinstance(record, UserRecord)
         assert record.content == []
+
+
+class TestActualTokens:
+    """parse_record must capture message.usage.output_tokens on assistant records."""
+
+    def _assistant(self, usage) -> dict:
+        message = {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "done"}],
+        }
+        if usage is not None:
+            message["usage"] = usage
+        return {
+            "uuid": "a-usage",
+            "parentUuid": "u1",
+            "isSidechain": False,
+            "sessionId": "sess1",
+            "timestamp": "2026-06-01T10:00:00.000Z",
+            "version": "2.1.150",
+            "cwd": "/home/user/proj",
+            "gitBranch": "main",
+            "type": "assistant",
+            "message": message,
+        }
+
+    def test_output_tokens_captured(self):
+        record = parse_record(self._assistant({"input_tokens": 12, "output_tokens": 321}))
+        assert isinstance(record, AssistantRecord)
+        assert record.actual_tokens == 321
+
+    def test_missing_usage_gives_none(self):
+        record = parse_record(self._assistant(None))
+        assert isinstance(record, AssistantRecord)
+        assert record.actual_tokens is None
+
+    def test_malformed_usage_gives_none(self):
+        record = parse_record(self._assistant("not-a-dict"))
+        assert record.actual_tokens is None
+        record = parse_record(self._assistant({"output_tokens": "many"}))
+        assert record.actual_tokens is None
+
+
+class TestToolResultIsError:
+    """parse_record must capture the is_error flag on tool_result blocks."""
+
+    def _user_with_result(self, extra: dict) -> dict:
+        block = {"type": "tool_result", "tool_use_id": "t1", "content": "output text"}
+        block.update(extra)
+        return {
+            "uuid": "u-res",
+            "parentUuid": "a1",
+            "isSidechain": False,
+            "sessionId": "sess1",
+            "timestamp": "2026-06-01T10:00:00.000Z",
+            "version": "2.1.150",
+            "cwd": "/home/user/proj",
+            "gitBranch": "main",
+            "type": "user",
+            "message": {"role": "user", "content": [block]},
+        }
+
+    def test_is_error_true_captured(self):
+        record = parse_record(self._user_with_result({"is_error": True}))
+        assert record.content[0].is_error is True
+
+    def test_is_error_false_captured(self):
+        record = parse_record(self._user_with_result({"is_error": False}))
+        assert record.content[0].is_error is False
+
+    def test_is_error_absent_gives_none(self):
+        record = parse_record(self._user_with_result({}))
+        assert record.content[0].is_error is None
+
+
+# ---------------------------------------------------------------------------
+# Subagent transcript attachment
+# ---------------------------------------------------------------------------
+
+def _jsonl_line(uuid: str, rtype: str, sidechain: bool, text: str) -> str:
+    return json.dumps({
+        "uuid": uuid,
+        "parentUuid": None,
+        "isSidechain": sidechain,
+        "sessionId": "parent-sess",
+        "timestamp": "2026-06-01T10:00:00.000Z",
+        "version": "2.1.150",
+        "cwd": "/home/user/proj",
+        "gitBranch": "main",
+        "type": rtype,
+        "message": {"role": rtype, "content": [{"type": "text", "text": text}]},
+    })
+
+
+class TestSubagentAttachment:
+    """Subagent transcripts at <project>/<session-uuid>/subagents/agent-*.jsonl
+    must attach to the parent session — never count as separate sessions."""
+
+    def _build_project(self, tmp_path: Path) -> Path:
+        proj = tmp_path / "D--myproj"
+        proj.mkdir()
+        main = proj / "abc-123.jsonl"
+        main.write_text(
+            _jsonl_line("u1", "user", False, "do the thing") + "\n"
+            + _jsonl_line("a1", "assistant", False, "doing it") + "\n",
+            encoding="utf-8",
+        )
+        agents = proj / "abc-123" / "subagents"
+        agents.mkdir(parents=True)
+        (agents / "agent-xyz.jsonl").write_text(
+            _jsonl_line("s1", "user", True, "subagent prompt") + "\n"
+            + _jsonl_line("s2", "assistant", True, "subagent reply") + "\n",
+            encoding="utf-8",
+        )
+        return proj
+
+    def test_session_count_unchanged_by_subagent_files(self, tmp_path):
+        self._build_project(tmp_path)
+        projects = discover_projects(tmp_path)
+        assert len(projects) == 1
+        # Only the top-level session file — agent files are not sessions.
+        assert len(projects[0].session_files) == 1
+        sessions = load_all_sessions(projects[0])
+        assert len(sessions) == 1
+
+    def test_subagent_records_attached_to_parent_session(self, tmp_path):
+        self._build_project(tmp_path)
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        records = sessions[0].records
+        sidechain = [r for r in records if r.is_sidechain]
+        assert len(sidechain) == 2, "subagent records must merge into parent session"
+        assert len(records) == 4
+
+    def test_project_without_subagents_unaffected(self, tmp_path):
+        proj = tmp_path / "D--plain"
+        proj.mkdir()
+        (proj / "sess.jsonl").write_text(
+            _jsonl_line("u1", "user", False, "hello") + "\n", encoding="utf-8"
+        )
+        projects = discover_projects(tmp_path)
+        sessions = load_all_sessions(projects[0])
+        assert len(sessions) == 1
+        assert len(sessions[0].records) == 1
 
 
 # ---------------------------------------------------------------------------

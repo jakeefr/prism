@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -265,6 +266,236 @@ class TestClaudeMdAdherence:
 # ---------------------------------------------------------------------------
 # Session Continuity
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# JSONL line builders for behavior-specific fixtures
+# ---------------------------------------------------------------------------
+
+def _line(uuid: str, rtype: str, content, **extra) -> str:
+    """One JSONL record line with envelope fields. content = blocks list or str."""
+    rec = {
+        "uuid": uuid,
+        "parentUuid": None,
+        "isSidechain": False,
+        "sessionId": "s1",
+        "timestamp": "2026-06-01T10:00:00.000Z",
+        "version": "2.1.150",
+        "cwd": "/proj",
+        "gitBranch": "main",
+        "type": rtype,
+        "message": {"role": rtype, "content": content},
+    }
+    rec.update(extra)
+    return json.dumps(rec)
+
+
+def _user_text(uuid: str, text: str) -> str:
+    return _line(uuid, "user", [{"type": "text", "text": text}])
+
+
+def _assistant_text(uuid: str, text: str) -> str:
+    return _line(uuid, "assistant", [{"type": "text", "text": text}])
+
+
+def _tool_use(uuid: str, tool_id: str, name: str = "Bash", inp: dict | None = None) -> str:
+    return _line(uuid, "assistant", [
+        {"type": "tool_use", "id": tool_id, "name": name,
+         "input": inp or {"command": "echo hi"}},
+    ])
+
+
+def _tool_result(uuid: str, tool_id: str, content: str, is_error: bool | None = None) -> str:
+    block = {"type": "tool_result", "tool_use_id": tool_id, "content": content}
+    if is_error is not None:
+        block["is_error"] = is_error
+    return _line(uuid, "user", [block])
+
+
+def _compact_boundary(uuid: str) -> str:
+    return json.dumps({
+        "uuid": uuid,
+        "parentUuid": None,
+        "isSidechain": False,
+        "sessionId": "s1",
+        "timestamp": "2026-06-01T10:00:00.000Z",
+        "version": "2.1.150",
+        "cwd": "/proj",
+        "gitBranch": "main",
+        "type": "system",
+        "subtype": "compact_boundary",
+        "summary": "context compacted",
+    })
+
+
+def _session(tmp_path: Path, name: str, lines: list[str]):
+    f = tmp_path / name
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return parse_session_file(f)
+
+
+# ---------------------------------------------------------------------------
+# CLAUDE.md injection cost (once per session + once per compaction)
+# ---------------------------------------------------------------------------
+
+class TestClaudeMdInjectionCost:
+    def _claude_md(self, tmp_path: Path) -> Path:
+        md = tmp_path / "CLAUDE.md"
+        md.write_text("x" * 400, encoding="utf-8")  # ~100 tokens
+        return md
+
+    def test_cost_once_per_session_not_per_tool_call(self, tmp_path):
+        """10 tool calls must not book 10x the CLAUDE.md size as waste."""
+        md = self._claude_md(tmp_path)
+        lines = []
+        for i in range(10):
+            lines.append(_tool_use(f"a{i}", f"t{i}"))
+            lines.append(_tool_result(f"u{i}", f"t{i}", "ok"))
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_token_efficiency([session], md)
+        assert metrics.claude_md_size_tokens == 100
+        assert metrics.claude_md_reread_tokens == metrics.claude_md_size_tokens
+
+    def test_trivial_session_not_flagged(self, tmp_path):
+        """A 2-record stub session always 'spends' more on CLAUDE.md than on
+        work — that is noise, not an actionable issue."""
+        md = self._claude_md(tmp_path)
+        lines = [
+            _user_text("u1", "hi"),
+            _assistant_text("a1", "hello"),
+        ]
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_token_efficiency([session], md)
+        cost_issues = [i for i in metrics.issues if "CLAUDE.md context cost" in i.description]
+        assert cost_issues == []
+
+    def test_substantial_session_with_heavy_cost_flagged(self, tmp_path):
+        """Sessions with real activity still get flagged when the ratio is high."""
+        md = tmp_path / "CLAUDE.md"
+        md.write_text("x" * 40_000, encoding="utf-8")  # ~10k tokens
+        lines = []
+        for i in range(20):
+            lines.append(_tool_use(f"a{i}", f"t{i}"))
+            lines.append(_tool_result(f"r{i}", f"t{i}", "y" * 2_000))
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_token_efficiency([session], md)
+        cost_issues = [i for i in metrics.issues if "CLAUDE.md context cost" in i.description]
+        assert len(cost_issues) == 1
+
+    def test_cost_grows_with_compaction(self, tmp_path):
+        """Each compaction re-injects CLAUDE.md once — independent of tool-call count."""
+        md = self._claude_md(tmp_path)
+        lines = [
+            _tool_use("a1", "t1"),
+            _tool_result("u1", "t1", "ok"),
+            _compact_boundary("c1"),
+            _tool_use("a2", "t2"),
+            _tool_result("u2", "t2", "ok"),
+            _tool_use("a3", "t3"),
+            _tool_result("u3", "t3", "ok"),
+            _tool_use("a4", "t4"),
+            _tool_result("u4", "t4", "ok"),
+        ]
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_token_efficiency([session], md)
+        # 1 initial injection + 1 compaction re-injection — NOT 4 tool calls x size.
+        assert metrics.claude_md_reread_tokens == 2 * metrics.claude_md_size_tokens
+
+
+# ---------------------------------------------------------------------------
+# Turn counting (real user prompts, not tool-result volume)
+# ---------------------------------------------------------------------------
+
+class TestTurnCounting:
+    def test_tool_result_volume_is_not_turns(self, tmp_path):
+        """120 tool calls in a 3-prompt session must not trigger the long-session flag."""
+        lines = [_user_text("u0", "kick off the task")]
+        for i in range(120):
+            lines.append(_tool_use(f"a{i}", f"t{i}"))
+            lines.append(_tool_result(f"r{i}", f"t{i}", "ok"))
+        lines.append(_user_text("u1", "looks good"))
+        lines.append(_assistant_text("a-final", "done"))
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_context_hygiene([session])
+        assert metrics.long_sessions == 0
+
+    def test_many_real_turns_still_flagged(self, tmp_path):
+        """A session with >100 actual user prompts is genuinely long."""
+        lines = []
+        for i in range(105):
+            lines.append(_user_text(f"u{i}", f"question number {i}"))
+            lines.append(_assistant_text(f"a{i}", f"answer number {i}"))
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_context_hygiene([session])
+        assert metrics.long_sessions == 1
+
+
+# ---------------------------------------------------------------------------
+# Resume-phrase gating (only resumed sessions can lose context)
+# ---------------------------------------------------------------------------
+
+class TestResumePhraseGating:
+    def test_non_resumed_session_not_flagged(self, tmp_path):
+        """Normal sessions opening with 'let me start by' are not context loss."""
+        lines = [
+            _user_text("u1", "review the auth module"),
+            _assistant_text("a1", "Let me start by reading the existing code."),
+        ]
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_session_continuity([session])
+        assert metrics.context_loss_resumes == 0
+
+    def test_resumed_session_with_phrases_flagged(self, tmp_path):
+        """Resumed sessions that re-establish context still count."""
+        lines = [
+            _line("u-cont", "user",
+                  "This session is being continued from a previous conversation."),
+            _assistant_text("a1", "First let me understand what the project does."),
+        ]
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_session_continuity([session])
+        assert metrics.resumed_sessions == 1
+        assert metrics.context_loss_resumes == 1
+
+
+# ---------------------------------------------------------------------------
+# Consecutive failures via is_error flag
+# ---------------------------------------------------------------------------
+
+class TestConsecutiveFailureFlag:
+    def test_is_error_flag_counts_failures(self, tmp_path):
+        """Three flagged failures count even when result text looks benign."""
+        lines = []
+        for i in range(3):
+            lines.append(_tool_use(f"a{i}", f"t{i}"))
+            lines.append(_tool_result(f"r{i}", f"t{i}", "command exited", is_error=True))
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_tool_health([session])
+        assert metrics.consecutive_failure_count == 1
+
+    def test_is_error_false_suppresses_prose_match(self, tmp_path):
+        """is_error=False must override error-looking prose like '0 errors'."""
+        lines = []
+        for i in range(3):
+            lines.append(_tool_use(f"a{i}", f"t{i}"))
+            lines.append(_tool_result(
+                f"r{i}", f"t{i}",
+                "Lint finished: 0 errors, 0 warnings. Error handling looks good.",
+                is_error=False,
+            ))
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_tool_health([session])
+        assert metrics.consecutive_failure_count == 0
+
+    def test_absent_flag_falls_back_to_prose(self, tmp_path):
+        """Without the flag (older files, agentsview), prose matching still works."""
+        lines = []
+        for i in range(3):
+            lines.append(_tool_use(f"a{i}", f"t{i}"))
+            lines.append(_tool_result(f"r{i}", f"t{i}", "Error: exit code 1"))
+        session = _session(tmp_path, "s.jsonl", lines)
+        metrics = analyze_tool_health([session])
+        assert metrics.consecutive_failure_count == 1
+
 
 class TestSessionContinuity:
     def test_clean_sessions(self):

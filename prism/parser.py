@@ -47,6 +47,7 @@ class ContentBlock:
     tool_name: str | None = None
     tool_input: dict[str, Any] | None = None
     tool_content: Any = None  # tool_result content
+    is_error: bool | None = None  # tool_result error flag; None when absent
 
 
 @dataclass
@@ -110,10 +111,12 @@ def _parse_content_blocks(content_raw: Any) -> list[ContentBlock]:
             ))
 
         elif block_type == "tool_result":
+            raw_is_error = item.get("is_error")
             blocks.append(ContentBlock(
                 type="tool_result",
                 tool_use_id=item.get("tool_use_id"),
                 tool_content=item.get("content"),
+                is_error=raw_is_error if isinstance(raw_is_error, bool) else None,
             ))
 
         else:
@@ -145,6 +148,22 @@ def classify_system_message(text: str) -> str | None:
     if t.startswith("Stop hook feedback:"):
         return "stop_hook"
     return None
+
+
+def _extract_output_tokens(message: Any) -> int | None:
+    """Pull message.usage.output_tokens when present and well-formed.
+
+    Returns None otherwise so callers fall back to the chars/4 estimate.
+    """
+    if not isinstance(message, dict):
+        return None
+    usage = message.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    tokens = usage.get("output_tokens")
+    if isinstance(tokens, bool) or not isinstance(tokens, int):
+        return None
+    return tokens
 
 
 def _parse_envelope(data: dict[str, Any]) -> dict[str, Any]:
@@ -191,6 +210,7 @@ def parse_record(data: dict[str, Any]) -> SessionRecord | None:
         return AssistantRecord(
             **envelope_kwargs,
             content=_parse_content_blocks(content_raw),
+            actual_tokens=_extract_output_tokens(message),
         )
 
     elif record_type == "system":
@@ -365,5 +385,20 @@ def discover_projects(base_dir: Path | None = None) -> list[ProjectInfo]:
 
 
 def load_all_sessions(project: ProjectInfo) -> list[ParseResult]:
-    """Load and parse all session files for a project."""
-    return [parse_session_file(f) for f in project.session_files]
+    """Load and parse all session files for a project.
+
+    Subagent transcripts (stored at ``<session-uuid>/subagents/agent-*.jsonl``
+    next to each session file) are merged into their parent session's records.
+    They are never returned as separate sessions.
+    """
+    results: list[ParseResult] = []
+    for session_file in project.session_files:
+        result = parse_session_file(session_file)
+        subagents_dir = session_file.parent / session_file.stem / "subagents"
+        if subagents_dir.is_dir():
+            for agent_file in sorted(subagents_dir.glob("*.jsonl")):
+                agent_result = parse_session_file(agent_file)
+                result.records.extend(agent_result.records)
+                result.skipped_lines += agent_result.skipped_lines
+        results.append(result)
+    return results
