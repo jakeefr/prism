@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.1 — 2026-06-03
+
+Patch release. No scores or output values change.
+
+### Changed
+
+- **`prism watch` reads incrementally.** The live watcher re-read and
+  re-parsed the entire active session file on every 2-second tick. It now
+  tracks a byte offset and parses only newly appended lines, handling
+  truncation, rotation, and in-place file replacement by resetting and
+  re-reading. Pure performance fix: parity tests assert the incremental
+  path produces the same state as a full re-parse of the same file.
+- **typer floor raised to 0.16.0.** typer below 0.16.0 crashes on any
+  `--help` with click 8.2 or newer (`make_metavar()` signature change),
+  and the declared click range permits click 8.2+. Verified in a clean
+  venv: typer 0.12.0 through 0.15.4 crash, 0.16.0 works with both ends
+  of the click range.
+- **Dropped the unused watchdog dependency.** Declared but never
+  imported; the watcher polls on a timer.
+- **uv.lock is now tracked** for reproducible dev installs.
+
 ## 0.4.0 — 2026-06-03
 
 Your scores may shift relative to 0.3.x. That is because measurements got
