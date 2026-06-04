@@ -78,7 +78,14 @@ SessionRecord = UserRecord | AssistantRecord | SystemRecord
 # ---------------------------------------------------------------------------
 
 def _parse_content_blocks(content_raw: Any) -> list[ContentBlock]:
-    """Parse a content array from a message into ContentBlock objects."""
+    """Parse a content array from a message into ContentBlock objects.
+
+    Current Claude Code versions emit some messages (continuations, command
+    caveats, plain prompts) with ``content`` as a bare string rather than a
+    block array — treat those as a single text block.
+    """
+    if isinstance(content_raw, str):
+        return [ContentBlock(type="text", text=content_raw)] if content_raw else []
     if not isinstance(content_raw, list):
         return []
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -278,3 +279,94 @@ class TestDefaultJsonlBehavior:
         result = runner.invoke(app, ["analyze", "--base-dir", str(tmp_path)])
         assert result.exit_code == 0
         assert "PRISM Health Report" in result.output
+
+
+# ---------------------------------------------------------------------------
+# CLI: --json output contract (consumed by cloudcli-plugin-prism)
+# ---------------------------------------------------------------------------
+
+
+def _envelope(uuid: str, parent: str | None, rtype: str, message: dict) -> str:
+    """Build one JSONL line with the common envelope fields."""
+    return json.dumps({
+        "uuid": uuid,
+        "parentUuid": parent,
+        "isSidechain": False,
+        "sessionId": "contract-sess",
+        "timestamp": "2026-06-01T10:00:00Z",
+        "version": "2.1.150",
+        "cwd": "/tmp/proj",
+        "gitBranch": "main",
+        "type": rtype,
+        "message": message,
+    })
+
+
+def _write_contract_fixture(tmp_path: Path) -> Path:
+    """Project whose analysis yields an issue description >80 chars containing
+    rich-markup-style bracket text — the exact inputs that corrupted --json output.
+    """
+    proj_dir = tmp_path / "contract-project"
+    proj_dir.mkdir()
+    # An Edit to a migration file triggers a high-severity tool_health issue whose
+    # description embeds the file path verbatim.
+    long_markup_path = (
+        "/srv/app/db/migrations/0001_[bold]initial_schema[/bold]_with_a_very_"
+        "long_descriptive_name_that_forces_line_wrapping_in_narrow_consoles.py"
+    )
+    lines = [
+        _envelope("u1", None, "user",
+                  {"role": "user", "content": [{"type": "text", "text": "fix the schema"}]}),
+        _envelope("a1", "u1", "assistant",
+                  {"role": "assistant", "content": [{
+                      "type": "tool_use",
+                      "id": "toolu_001",
+                      "name": "Edit",
+                      "input": {"file_path": long_markup_path},
+                  }]}),
+        _envelope("u2", "a1", "user",
+                  {"role": "user", "content": [{
+                      "type": "tool_result",
+                      "tool_use_id": "toolu_001",
+                      "content": "ok",
+                  }]}),
+    ]
+    (proj_dir / "session1.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return proj_dir
+
+
+class TestJsonOutputContract:
+    """analyze --json must emit valid, unmangled JSON with the fields the
+    cloudcli-plugin-prism consumer parses."""
+
+    def test_json_round_trips_with_long_and_markup_descriptions(self, tmp_path: Path) -> None:
+        _write_contract_fixture(tmp_path)
+        result = runner.invoke(app, ["analyze", "--base-dir", str(tmp_path), "--json"])
+        assert result.exit_code == 0
+
+        # Must parse: rich line-wrapping previously injected raw newlines into
+        # string literals, breaking json.loads / JSON.parse downstream.
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        entry = data[0]
+
+        # Every field the plugin reads must be present.
+        for key in ("project", "display_name", "session_count",
+                    "overall_grade", "overall_score", "dimensions", "top_issues"):
+            assert key in entry, f"missing contract field: {key}"
+        assert entry["dimensions"], "dimensions must not be empty"
+        for name, dim in entry["dimensions"].items():
+            assert "grade" in dim, f"dimensions.{name} missing grade"
+            assert "score" in dim, f"dimensions.{name} missing score"
+        assert entry["top_issues"], "expected at least one issue from fixture"
+        for issue in entry["top_issues"]:
+            for key in ("severity", "category", "description"):
+                assert key in issue, f"top_issues entry missing {key}"
+
+        # Markup-style brackets must survive verbatim — rich markup previously
+        # stripped them from descriptions.
+        descriptions = [i["description"] for i in entry["top_issues"]]
+        assert any("[bold]" in d for d in descriptions), (
+            "bracket text was stripped from issue descriptions"
+        )

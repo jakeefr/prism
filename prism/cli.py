@@ -312,7 +312,10 @@ def _print_json(reports: list) -> None:
         if report.agentsview_health:
             entry["agentsview_health"] = report.agentsview_health
         output.append(entry)
-    console.print(json.dumps(output, indent=2))
+    # Plain print, not console.print: rich wraps long lines at terminal width
+    # (corrupting string literals with raw newlines) and interprets [bracket]
+    # text as markup. Downstream consumers parse this with json.loads/JSON.parse.
+    print(json.dumps(output, indent=2))
 
 
 # ---------------------------------------------------------------------------
