@@ -12,6 +12,7 @@ from prism.parser import (
     ContentBlock,
     ParseResult,
     ProjectInfo,
+    SessionTail,
     SystemRecord,
     UserRecord,
     discover_projects,
@@ -817,3 +818,170 @@ class TestProjectPathToEncodedName:
         display = info.display_name
         # re-encoding the display should yield the original encoded name
         assert project_path_to_encoded_name(display) == encoded
+
+
+# ---------------------------------------------------------------------------
+# SessionTail — incremental tail reader for live watching
+# ---------------------------------------------------------------------------
+
+def _tail_user(uuid: str, text: str = "hello") -> str:
+    return json.dumps({
+        "uuid": uuid,
+        "parentUuid": None,
+        "isSidechain": False,
+        "sessionId": "sess-tail",
+        "timestamp": "2026-06-03T10:00:00.000Z",
+        "version": "2.1.98",
+        "cwd": "/home/user/proj",
+        "gitBranch": "main",
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+    })
+
+
+def _tail_assistant(uuid: str) -> str:
+    return json.dumps({
+        "uuid": uuid,
+        "parentUuid": None,
+        "isSidechain": False,
+        "sessionId": "sess-tail",
+        "timestamp": "2026-06-03T10:00:01.000Z",
+        "version": "2.1.98",
+        "cwd": "/home/user/proj",
+        "gitBranch": "main",
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Running it."},
+                {"type": "tool_use", "id": f"t-{uuid}", "name": "Bash",
+                 "input": {"command": "ls"}},
+            ],
+            "usage": {"output_tokens": 42},
+        },
+    })
+
+
+def _tail_compact(uuid: str) -> str:
+    return json.dumps({
+        "uuid": uuid,
+        "parentUuid": None,
+        "isSidechain": False,
+        "sessionId": "sess-tail",
+        "timestamp": "2026-06-03T10:00:02.000Z",
+        "version": "2.1.98",
+        "cwd": "/home/user/proj",
+        "gitBranch": "main",
+        "type": "system",
+        "subtype": "compact_boundary",
+        "summary": "Compacted.",
+    })
+
+
+def _append(path: Path, data: str) -> None:
+    with path.open("a", encoding="utf-8", newline="") as f:
+        f.write(data)
+
+
+class TestSessionTail:
+    def test_initial_poll_matches_full_parse(self, tmp_path):
+        f = tmp_path / "s.jsonl"
+        f.write_text(_tail_user("u1") + "\n" + _tail_assistant("a1") + "\n",
+                     encoding="utf-8")
+        tail = SessionTail(f)
+        tail.poll()
+        assert tail.records == parse_session_file(f).records
+
+    def test_appended_lines_match_full_reparse(self, tmp_path):
+        """Incremental parsing of appends yields identical watcher state to a
+        full re-parse of the same final file."""
+        from prism.analyzer import estimate_record_tokens
+
+        f = tmp_path / "s.jsonl"
+        f.write_text(_tail_user("u1") + "\n", encoding="utf-8")
+        tail = SessionTail(f)
+        tail.poll()
+        _append(f, _tail_assistant("a1") + "\n" + _tail_user("u2") + "\n")
+        tail.poll()
+        _append(f, _tail_compact("c1") + "\n" + _tail_assistant("a2") + "\n")
+        tail.poll()
+
+        full = parse_session_file(f)
+        assert tail.records == full.records
+
+        # Same derived watcher state: tokens, tool calls, compactions.
+        def state(records):
+            tokens = sum(estimate_record_tokens(r) for r in records)
+            tools = sum(
+                1 for r in records
+                if isinstance(r, AssistantRecord)
+                for b in r.content if b.type == "tool_use"
+            )
+            compactions = sum(
+                1 for r in records
+                if isinstance(r, SystemRecord) and r.subtype == "compact_boundary"
+            )
+            return (tokens, tools, compactions)
+
+        assert state(tail.records) == state(full.records)
+
+    def test_partial_trailing_line_held_back_until_newline(self, tmp_path):
+        f = tmp_path / "s.jsonl"
+        f.write_text(_tail_user("u1") + "\n", encoding="utf-8")
+        tail = SessionTail(f)
+        tail.poll()
+        assert len(tail.records) == 1
+
+        # Simulate a mid-write: half a record, no newline yet.
+        line = _tail_user("u2")
+        _append(f, line[: len(line) // 2])
+        tail.poll()
+        assert len(tail.records) == 1  # partial line not consumed
+
+        # Writer finishes the line.
+        _append(f, line[len(line) // 2:] + "\n")
+        tail.poll()
+        assert len(tail.records) == 2
+        assert tail.records == parse_session_file(f).records
+
+    def test_shrunk_file_resets_and_rereads(self, tmp_path):
+        f = tmp_path / "s.jsonl"
+        f.write_text(
+            _tail_user("u1") + "\n" + _tail_user("u2") + "\n" + _tail_user("u3") + "\n",
+            encoding="utf-8",
+        )
+        tail = SessionTail(f)
+        tail.poll()
+        assert len(tail.records) == 3
+
+        # File replaced/truncated to something smaller.
+        f.write_text(_tail_user("x1") + "\n", encoding="utf-8")
+        tail.poll()
+        assert len(tail.records) == 1
+        assert tail.records == parse_session_file(f).records
+        assert tail.records[0].uuid == "x1"
+
+    def test_missing_file_polls_empty(self, tmp_path):
+        tail = SessionTail(tmp_path / "gone.jsonl")
+        tail.poll()
+        assert tail.records == []
+
+    def test_malformed_complete_line_skipped(self, tmp_path):
+        f = tmp_path / "s.jsonl"
+        f.write_text(_tail_user("u1") + "\n{not json}\n" + _tail_user("u2") + "\n",
+                     encoding="utf-8")
+        tail = SessionTail(f)
+        tail.poll()
+        assert tail.records == parse_session_file(f).records
+        assert len(tail.records) == 2
+        assert tail.skipped_lines == 1
+
+    def test_unchanged_file_polls_no_new_records(self, tmp_path):
+        f = tmp_path / "s.jsonl"
+        f.write_text(_tail_user("u1") + "\n", encoding="utf-8")
+        tail = SessionTail(f)
+        first = tail.poll()
+        assert len(first) == 1
+        second = tail.poll()
+        assert second == []
+        assert len(tail.records) == 1

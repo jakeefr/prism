@@ -15,8 +15,8 @@ from textual.widgets import Label, RichLog
 from prism.parser import (
     CLAUDE_PROJECTS_DIR,
     AssistantRecord,
+    SessionTail,
     SystemRecord,
-    parse_session_file,
 )
 from prism.analyzer import estimate_record_tokens
 
@@ -79,7 +79,7 @@ class LiveWatcher(Widget):
         self._max_context = max_context_tokens
         self._watch_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._current_file: Path | None = None
+        self._tail: SessionTail | None = None
 
     def compose(self) -> ComposeResult:
         yield RichLog(
@@ -149,31 +149,37 @@ class LiveWatcher(Widget):
         return newest
 
     def _poll_and_update(self) -> None:
-        """Poll active session and update the display."""
+        """Poll active session incrementally and update the display."""
         active = self._find_active_session()
         if active is None:
             self._emit_no_session()
             return
 
-        result = parse_session_file(active)
-        if not result.records:
+        # Tail the active file: only newly appended lines are read and
+        # parsed per tick. Rotation to a different file starts a fresh tail;
+        # in-place truncation/replacement is handled inside SessionTail.
+        if self._tail is None or self._tail.path != active:
+            self._tail = SessionTail(active)
+        self._tail.poll()
+        records = self._tail.records
+        if not records:
             return
 
-        total_tokens = sum(estimate_record_tokens(r) for r in result.records)
+        total_tokens = sum(estimate_record_tokens(r) for r in records)
         tool_calls = sum(
-            1 for r in result.records
+            1 for r in records
             if isinstance(r, AssistantRecord)
             for b in r.content
             if b.type == "tool_use"
         )
         compactions = sum(
-            1 for r in result.records
+            1 for r in records
             if isinstance(r, SystemRecord) and r.subtype == "compact_boundary"
         )
         risk = min(1.0, total_tokens / self._max_context)
 
         self._update_metrics_display(total_tokens, tool_calls, compactions, risk)
-        self._update_event_log(active, result.records[-10:] if result.records else [])
+        self._update_event_log(active, records[-10:])
         self.post_message(self.SessionUpdated(total_tokens, tool_calls, risk))
 
     def _emit_no_session(self) -> None:

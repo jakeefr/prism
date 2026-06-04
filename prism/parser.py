@@ -294,6 +294,94 @@ def parse_session_file(path: Path) -> ParseResult:
 
 
 # ---------------------------------------------------------------------------
+# Incremental tail reading
+# ---------------------------------------------------------------------------
+
+class SessionTail:
+    """Incremental reader for a growing session JSONL file.
+
+    Tracks a byte offset and parses only newly appended lines per ``poll()``,
+    so repeated polling of a large live session does not re-read and re-parse
+    the whole file each time. ``records`` always equals what a full
+    ``parse_session_file(path).records`` of the file's current complete lines
+    would produce.
+
+    Only complete lines (ending in a newline) are consumed; a partial trailing
+    line — a record mid-write — stays unread until its newline arrives. A full
+    re-parse would skip that partial line as malformed and pick it up complete
+    on the next pass, so holding it back yields the same records.
+
+    If the file shrinks below the last read offset (truncated, rotated, or
+    replaced in place), all state resets and the file is re-read from the
+    start. Rotation to a *different* path is the caller's concern: create a
+    new SessionTail for the new file.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.records: list[SessionRecord] = []
+        self.skipped_lines = 0
+        self._offset = 0  # byte offset of the next unread data
+
+    def poll(self) -> list[SessionRecord]:
+        """Read newly appended complete lines; return the new records.
+
+        Never raises — an unreadable or missing file returns no new records
+        and keeps existing state.
+        """
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            return []
+
+        if size < self._offset:
+            # Truncated/rotated/replaced in place — start over.
+            self.records = []
+            self.skipped_lines = 0
+            self._offset = 0
+
+        if size == self._offset:
+            return []
+
+        try:
+            with self.path.open("rb") as fh:
+                fh.seek(self._offset)
+                chunk = fh.read(size - self._offset)
+        except OSError:
+            return []
+
+        # Consume only up to the last newline; hold back a partial trailing
+        # line. A newline byte never occurs inside a UTF-8 multibyte
+        # sequence, so this boundary is always a safe decode point.
+        end = chunk.rfind(b"\n")
+        if end == -1:
+            return []
+        consumed = chunk[: end + 1]
+        self._offset += end + 1
+
+        new_records: list[SessionRecord] = []
+        for line in consumed.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                self.skipped_lines += 1
+                logger.debug("Skipping malformed tail line in %s", self.path)
+                continue
+            if not isinstance(data, dict):
+                self.skipped_lines += 1
+                continue
+            record = parse_record(data)
+            if record is not None:
+                new_records.append(record)
+
+        self.records.extend(new_records)
+        return new_records
+
+
+# ---------------------------------------------------------------------------
 # Project-level discovery
 # ---------------------------------------------------------------------------
 
