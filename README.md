@@ -6,13 +6,12 @@
 
 <div align="center">
 
-[![PyPI version](https://img.shields.io/pypi/v/prism-cc?cache=1)](https://pypi.org/project/prism-cc/)
+[![PyPI version](https://img.shields.io/pypi/v/prism-cc)](https://pypi.org/project/prism-cc/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Tests](https://img.shields.io/github/actions/workflow/status/jakeefr/prism/tests.yml?label=tests)](https://github.com/jakeefr/prism/actions)
-[![PyPI downloads](https://img.shields.io/pypi/dm/prism-cc?label=installs)](https://pypi.org/project/prism-cc/)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://github.com/jakeefr/prism)
-[![Zero dependencies](https://img.shields.io/badge/external%20deps-5-brightgreen.svg)](pyproject.toml)
+[![CloudCLI Plugin](https://img.shields.io/badge/CloudCLI-Plugin-blueviolet.svg)](https://github.com/jakeefr/cloudcli-plugin-prism)
 
 </div>
 
