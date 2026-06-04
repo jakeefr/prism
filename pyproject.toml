@@ -25,7 +25,6 @@ dependencies = [
     "rich>=14.0.0",
     "typer>=0.16.0",
     "click>=8.1.0",
-    "watchdog>=4.0.0",
 ]
 
 [project.scripts]
