@@ -311,17 +311,29 @@ class SessionTail:
     re-parse would skip that partial line as malformed and pick it up complete
     on the next pass, so holding it back yields the same records.
 
-    If the file shrinks below the last read offset (truncated, rotated, or
-    replaced in place), all state resets and the file is re-read from the
-    start. Rotation to a *different* path is the caller's concern: create a
-    new SessionTail for the new file.
+    Truncation, rotation, and in-place replacement reset all state and
+    re-read from the start. Detected two ways: the file shrank below the
+    last read offset, or the file's leading bytes no longer match the
+    fingerprint captured on first read (appends never change them; a
+    rewrite that keeps the same leading bytes is undetectable, but session
+    files start with a unique record uuid). Rotation to a *different* path
+    is the caller's concern: create a new SessionTail for the new file.
     """
+
+    _FINGERPRINT_LEN = 64
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self.records: list[SessionRecord] = []
         self.skipped_lines = 0
         self._offset = 0  # byte offset of the next unread data
+        self._fingerprint = b""  # leading bytes captured on first read
+
+    def _reset(self) -> None:
+        self.records = []
+        self.skipped_lines = 0
+        self._offset = 0
+        self._fingerprint = b""
 
     def poll(self) -> list[SessionRecord]:
         """Read newly appended complete lines; return the new records.
@@ -334,17 +346,18 @@ class SessionTail:
         except OSError:
             return []
 
-        if size < self._offset:
-            # Truncated/rotated/replaced in place — start over.
-            self.records = []
-            self.skipped_lines = 0
-            self._offset = 0
-
-        if size == self._offset:
-            return []
-
         try:
             with self.path.open("rb") as fh:
+                if self._fingerprint:
+                    head = fh.read(len(self._fingerprint))
+                    if head != self._fingerprint:
+                        # Replaced in place (size may have grown) — start over.
+                        self._reset()
+                if size < self._offset:
+                    # Truncated/rotated — start over.
+                    self._reset()
+                if size == self._offset:
+                    return []
                 fh.seek(self._offset)
                 chunk = fh.read(size - self._offset)
         except OSError:
@@ -357,6 +370,8 @@ class SessionTail:
         if end == -1:
             return []
         consumed = chunk[: end + 1]
+        if self._offset == 0:
+            self._fingerprint = consumed[: self._FINGERPRINT_LEN]
         self._offset += end + 1
 
         new_records: list[SessionRecord] = []

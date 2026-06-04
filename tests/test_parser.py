@@ -966,6 +966,42 @@ class TestSessionTail:
         tail.poll()
         assert tail.records == []
 
+    def test_inplace_rewrite_same_or_larger_resets(self, tmp_path):
+        """A rewrite that doesn't shrink the file must still reset the tail."""
+        f = tmp_path / "s.jsonl"
+        f.write_text(_tail_user("u1") + "\n", encoding="utf-8")
+        tail = SessionTail(f)
+        tail.poll()
+        assert [r.uuid for r in tail.records] == ["u1"]
+
+        # In-place rewrite: different content, final size >= the old offset.
+        f.write_text(
+            _tail_user("z1", "different") + "\n" + _tail_user("z2", "more") + "\n",
+            encoding="utf-8",
+        )
+        tail.poll()
+        assert tail.records == parse_session_file(f).records
+        assert [r.uuid for r in tail.records] == ["z1", "z2"]
+
+    def test_read_error_preserves_state(self, tmp_path, monkeypatch):
+        f = tmp_path / "s.jsonl"
+        f.write_text(_tail_user("u1") + "\n", encoding="utf-8")
+        tail = SessionTail(f)
+        tail.poll()
+        _append(f, _tail_user("u2") + "\n")
+
+        def boom(self, *args, **kwargs):
+            raise OSError("file locked")
+
+        monkeypatch.setattr(Path, "open", boom)
+        assert tail.poll() == []
+        assert [r.uuid for r in tail.records] == ["u1"]
+        monkeypatch.undo()
+
+        # Next poll picks up where it left off.
+        tail.poll()
+        assert tail.records == parse_session_file(f).records
+
     def test_malformed_complete_line_skipped(self, tmp_path):
         f = tmp_path / "s.jsonl"
         f.write_text(_tail_user("u1") + "\n{not json}\n" + _tail_user("u2") + "\n",
