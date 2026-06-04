@@ -23,3 +23,6 @@ htmlcov/
 # roborev (review DB lives outside repo; this is a safety net)
 .roborev/
 .roborev.toml
+
+# local agent state
+.claude/
