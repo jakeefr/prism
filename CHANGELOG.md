@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`analyze --json` emitted corrupt JSON.** Output was printed through the
+  rich console, which wraps lines at terminal width (80 on non-TTY) —
+  injecting raw newlines inside JSON string literals whenever an issue
+  description exceeded ~80 chars — and interprets `[bracket]` text in
+  descriptions as markup, silently stripping it. Either corruption breaks
+  `JSON.parse` in downstream consumers. Now printed plain. A contract
+  regression test locks in valid round-trippable output and the fields
+  consumers parse.
+- **Bare-string message content was dropped by the parser.** Recent Claude
+  Code versions emit some messages (continuations, command caveats, plain
+  prompts) with `message.content` as a string instead of a block array. The
+  parser produced no content blocks for these, so continuation/resume/
+  interrupted classification never fired on the JSONL backend. A bare string
+  now parses as a single text block. Note: Session Continuity scores may
+  shift versus prior runs — continuations are now actually detected.
+
 ## 0.3.1 — 2026-06-03
 
 ### Fixed

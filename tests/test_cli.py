@@ -344,9 +344,12 @@ class TestJsonOutputContract:
         result = runner.invoke(app, ["analyze", "--base-dir", str(tmp_path), "--json"])
         assert result.exit_code == 0
 
-        # Must parse: rich line-wrapping previously injected raw newlines into
-        # string literals, breaking json.loads / JSON.parse downstream.
-        data = json.loads(result.output)
+        # Parse the way cloudcli-plugin-prism does: locate the outermost JSON
+        # array in stdout, then parse. Rich line-wrapping previously injected
+        # raw newlines into string literals, breaking this downstream.
+        out = result.output
+        start, end = out.index("["), out.rindex("]")
+        data = json.loads(out[start:end + 1])
         assert isinstance(data, list)
         assert len(data) == 1
         entry = data[0]
