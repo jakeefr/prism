@@ -12,7 +12,6 @@
 [![Tests](https://img.shields.io/github/actions/workflow/status/jakeefr/prism/tests.yml?label=tests)](https://github.com/jakeefr/prism/actions)
 [![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-Plugin-orange.svg)](https://github.com/jakeefr/prism)
 [![CloudCLI Plugin](https://img.shields.io/badge/CloudCLI-Plugin-blueviolet.svg)](https://github.com/jakeefr/cloudcli-plugin-prism)
-[![tokenflex.ing](https://tokenflex.ing/u/jake/badge.svg)](https://tokenflex.ing/u/jake)
 
 </div>
 
